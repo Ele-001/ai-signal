@@ -1,0 +1,22 @@
+node_modules/
+dist/
+src-tauri/target/
+.DS_Store
+*.log
+
+*.tsbuildinfo
+__pycache__/
+
+# Local credentials, generated settings and desktop captures
+.env
+.env.*
+!.env.example
+bridge.json
+connections.json
+monitor-alerts.json
+*.pem
+*.key
+src-tauri/gen/
+docs/*.png
+!docs/widget-macos.png
+!docs/recovery-0.1.2.png

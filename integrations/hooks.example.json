@@ -1,0 +1,82 @@
+{
+  "description": "AI Signal local status indicator. Review these commands before trusting them.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/path/to/ai-signal/integrations/codex_hook.py' --event UserPromptSubmit",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/path/to/ai-signal/integrations/codex_hook.py' --event PreToolUse",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/path/to/ai-signal/integrations/codex_hook.py' --event PermissionRequest",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/path/to/ai-signal/integrations/codex_hook.py' --event PostToolUse",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/path/to/ai-signal/integrations/codex_hook.py' --event Stop",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/path/to/ai-signal/integrations/codex_hook.py' --event Interrupt",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/path/to/ai-signal/integrations/codex_hook.py' --event SessionEnd",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
