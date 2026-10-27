@@ -17,9 +17,9 @@ function page(height:number,body:string) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="${height}" viewBox="0 0 1320 ${height}" role="img"><style>text{font-family:${font}}.attention-ring{opacity:0}.signal-completed .lamp-active{opacity:.58}</style><rect width="1320" height="${height}" fill="#f5f5f7"/>${body}</svg>`;
 }
 const states:{status:Status;title:string;effect:string;color:string;lines:string[];rhythm:number[]}[]=[
- {status:'attention',title:'需要处理',effect:'红灯常亮',color:'#e44338',lines:['等待回答或已接入的审批','锁屏、连接异常或状态待确认','有任一待处理项，就保持红灯'],rhythm:Array(24).fill(1)},
+ {status:'attention',title:'需要处理',effect:'红灯常亮',color:'#e44338',lines:['等待回答或已接入的审批','锁屏或明确的连接故障','有任一待处理项，就保持红灯'],rhythm:Array(24).fill(1)},
  {status:'repairing',title:'自动修复',effect:'黄灯规律双闪',color:'#c68a16',lines:['来源明确上报正在修复','或手动切换到修复状态','普通错误不会自动变黄灯'],rhythm:[1,1,.16,1,1,.16,.16,.16,.16,.16,.16,.16,1,1,.16,1,1,.16,.16,.16,.16,.16,.16,.16]},
- {status:'running',title:'正在运行',effect:'绿灯不规则短闪',color:'#319648',lines:['AI 正在处理已识别的任务','或原任务已恢复并有新进展','闪烁节奏不代表实时负载'],rhythm:[1,.18,.18,1,1,.18,1,.18,.18,.18,1,.18,1,1,.18,.18,1,.18,.18,.18,.18,1,.18,.18]},
+ {status:'running',title:'正在运行',effect:'绿灯不规则短闪',color:'#319648',lines:['任务运行、耗时操作或网络等待','无新消息不会自动变红','闪烁节奏不代表实时负载'],rhythm:[1,.18,.18,1,1,.18,1,.18,.18,.18,1,.18,1,1,.18,.18,1,.18,.18,.18,.18,1,.18,.18]},
  {status:'completed',title:'已完成',effect:'绿灯确认双闪后常亮',color:'#319648',lines:['手动标记完成','或来源报告本轮结束','本轮结束不等于结果已验收'],rhythm:[1,1,.2,.2,1,1,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58,.58]},
  {status:'idle',title:'空闲',effect:'三盏灯全部熄灭',color:'#8b8b91',lines:['任务已被明确标记为空闲','或列表中没有任务','未收到事件不代表一切正常'],rhythm:Array(24).fill(.14)},
 ];
@@ -36,8 +36,7 @@ body+=`<path d="M40 655H1280" stroke="#dedee3"/>`+text(40,695,'汇总优先级�
 writeFileSync('docs/images/signal-states.svg',page(770,body));
 const rows=[
  ['等待用户处理','回答问题，或处理已接入的审批','全部待答项解除后，按任务当前状态切换。'],
- ['工作期间锁屏或监测中断','桌面恢复可用，且所有受影响原任务恢复或结束','仅解锁不会清除仍然受阻的任务；无关任务的进度不算恢复。'],
- ['连续 2 分钟没有新进展','同一个任务收到新进展，或明确报告结束','长耗时操作也可能触发“状态待确认”，不代表已经确认失败。'],
+ ['明确识别到工作期间锁屏','桌面恢复可用，且所有受影响原任务恢复或结束','仅解锁不会清除仍然受阻的任务；无关任务的进度不算恢复。'],
  ['连接或状态读取异常','对应来源、接收端或内部连接实际恢复','故障恢复后自动解除，无需手动清除提醒。'],
 ];
 let recovery=text(40,65,'红灯何时自动解除',34,'#1d1d1f',650)+text(40,102,'只有阻塞解除或出现可靠的新状态，才会重新汇总灯色。',19,'#6e6e73');
@@ -45,8 +44,8 @@ recovery+=lamp('attention',68,205,142,276)+text(69,530,'红灯常亮',22,'#bd342
 rows.forEach((row,i)=>{
  const y=164+i*122;
  recovery+=`<circle cx="300" cy="${y-7}" r="5" fill="#e44338"/>`+text(320,y,row[0],21,'#1d1d1f',600)+text(320,y+36,'解除条件：'+row[1],19,'#1d1d1f')+text(320,y+66,row[2],17,'#6e6e73');
- if(i<3)recovery+=`<path d="M300 ${y+90}H1280" stroke="#dedee3"/>`;
+ if(i<2)recovery+=`<path d="M300 ${y+90}H1280" stroke="#dedee3"/>`;
 });
-recovery+=`<path d="M40 660H1280" stroke="#dedee3"/>`+text(40,700,'恢复运行 → 绿闪　　明确结束 → 绿常亮　　空闲 → 全灭',22,'#287a3d',500)+text(40,739,'仍有其他待处理项时，汇总继续红灯。手动模拟任务需手动切换；未接入的事件无法保证即时识别。',17,'#6e6e73');
-writeFileSync('docs/images/signal-recovery.svg',page(775,recovery));
+recovery+=`<path d="M40 560H1280" stroke="#dedee3"/>`+text(40,600,'恢复运行 → 绿闪　　明确结束 → 绿常亮　　空闲 → 全灭',22,'#287a3d',500)+text(40,639,'网络慢或长时间无消息不会自动变红。仍有其他待处理项时继续红灯；手动模拟状态需手动切换。',17,'#6e6e73');
+writeFileSync('docs/images/signal-recovery.svg',page(675,recovery));
 console.log('Generated two SVG guides from the actual Signal component.');

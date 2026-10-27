@@ -1,5 +1,7 @@
 # AI Signal 验收记录
 
+最新 0.1.3 静默状态修复见 [QUIET-STATE-FIX.md](QUIET-STATE-FIX.md)。
+
 最新 0.1.2 自动解除修复见 [RECOVERY-FIX.md](RECOVERY-FIX.md)。0.1.1 红灯修复与新增测试见 [ATTENTION-FIX.md](ATTENTION-FIX.md)。以下为初始 MVP 验收记录。
 
 日期：2026-10-26。实测环境：macOS 26.3、Apple Silicon / arm64。应用最低系统配置为 macOS 12.3，该最低版本未另做实机验证。

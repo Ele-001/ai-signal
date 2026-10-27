@@ -1,5 +1,7 @@
 # 0.1.1 红灯漏报修复验收
 
+> 历史版本验收记录。0.1.3 已取消“无新进展自动红灯”，当前规则见 [QUIET-STATE-FIX.md](QUIET-STATE-FIX.md)。
+
 日期：2026-10-26。环境：macOS 26.3，Apple Silicon。
 
 ## 修复内容

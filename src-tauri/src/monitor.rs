@@ -3,11 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{Emitter, Manager};
 
-const STALE_MS: u64 = 120_000;
-const SUSPEND_GAP_MS: u64 = 20_000;
 fn now_ms() -> u64 {SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64}
 fn working(task: &ExternalTask) -> bool {matches!(task.status, Status::Running | Status::Repairing)}
-fn sticky(id: &str) -> bool {matches!(id, "monitor:screen" | "monitor:suspend")}
+fn sticky(id: &str) -> bool {id == "monitor:screen"}
 
 #[derive(Default, Deserialize, Serialize)]
 struct SavedMonitor {
@@ -18,12 +16,8 @@ struct SavedMonitor {
 #[derive(Default)]
 pub(crate) struct Monitor {
     alerts: HashMap<String, ExternalTask>,
-    grace: HashMap<String, u64>,
     targets: HashMap<String,HashMap<String,u64>>,
     recovery_after: HashMap<String,u64>,
-    last_tick: u64,
-    was_busy: bool,
-    previous_working: HashMap<String,u64>,
     desktop_blocked: bool,
 }
 impl Monitor {
@@ -54,15 +48,9 @@ impl Monitor {
                 _=>{}
             }
         }
-        if (busy || self.was_busy) && self.last_tick!=0 && now.saturating_sub(self.last_tick)>SUSPEND_GAP_MS {
-            self.raise("monitor:suspend", "工作期间监测曾中断", "电脑可能睡眠，或监测进程曾暂停超过 20 秒。原任务恢复或结束后自动解除。", now);
-            self.track_affected("monitor:suspend",tasks);
-            let affected=self.targets.entry("monitor:suspend".into()).or_default();
-            for (id,at) in &self.previous_working {affected.entry(id.clone()).or_insert(*at);}
-        }
         if !self.desktop_blocked {
             let mut recovered=Vec::new();
-            for id in ["monitor:screen","monitor:suspend"] {
+            for id in ["monitor:screen"] {
                 let Some(alert)=self.alerts.get(id) else {continue;};
                 let after=*self.recovery_after.entry(id.into()).or_insert(now);
                 // Migrate older reminders without treating an unrelated task as recovery evidence.
@@ -75,9 +63,6 @@ impl Monitor {
             }
             for id in recovered {self.alerts.remove(&id);self.targets.remove(&id);self.recovery_after.remove(&id);}
         }
-        self.last_tick=now;
-        self.was_busy=busy;
-        self.previous_working=tasks.iter().filter(|task|working(task)).map(|task|(task.id.clone(),task.updated_at)).collect();
         let mut keep=Vec::new();
         if busy && self.desktop_blocked {keep.push("monitor:desktop".to_owned());}
         for (provider,error) in faults {
@@ -85,22 +70,14 @@ impl Monitor {
             self.raise(&id,"任务连接异常", &format!("{provider}：{error}。当前状态无法确认，请检查来源软件。"),now);
             keep.push(id);
         }
-        for task in tasks.iter().filter(|task|working(task)) {
-            let id=format!("monitor:stale:{}",task.id);
-            let last=task.updated_at.max(*self.grace.get(&task.id).unwrap_or(&0));
-            if now.saturating_sub(last)>=STALE_MS {
-                self.raise(&id,&format!("状态待确认：{}", task.title),"连续 2 分钟没有收到新进展。可能在执行耗时操作，也可能在等待权限、网络或人工处理；请检查原任务。收到新进展后自动解除。",now);
-                keep.push(id);
-            }
-        }
+        // Silence is not evidence of a blocker: preserve the last explicit task state.
+        // This also drops timeout-only reminders created by older versions.
         self.alerts.retain(|id,_|sticky(id)||keep.contains(id));
-        self.grace.retain(|id,_|tasks.iter().any(|task|task.id==*id && working(task)));
     }
-    fn acknowledge(&mut self, id: &str, now: u64) -> Result<(),String> {
+    fn acknowledge(&mut self, id: &str, _now: u64) -> Result<(),String> {
         if !self.alerts.contains_key(id) {return Ok(());}
         if id.starts_with("monitor:connection:") || id=="monitor:desktop" {return Err("请先恢复连接或系统状态；恢复后提醒会自动解除。".into());}
         if self.desktop_blocked && sticky(id) {return Err("请先解锁并恢复桌面，再检查原任务。".into());}
-        if let Some(task_id)=id.strip_prefix("monitor:stale:") {self.grace.insert(task_id.into(),now);}
         self.alerts.remove(id);
         self.targets.remove(id);self.recovery_after.remove(id);
         Ok(())
@@ -241,19 +218,24 @@ mod tests {
         let mut m=Monitor::default();m.tick(1000,Ok(true),&[],&HashMap::new());assert!(m.alerts.is_empty());
         m.tick(3000,Ok(true),&[task(3000)],&HashMap::new());assert!(m.alerts.contains_key("monitor:screen"));
     }
-    #[test] fn quiet_tasks_turn_red_and_new_progress_or_completion_clears_timeout() {
-        let mut m=Monitor::default();let mut t=task(1000);
-        m.tick(120999,Ok(false),&[t.clone()],&HashMap::new());assert!(m.alerts.is_empty());
-        m.tick(121000,Ok(false),&[t.clone()],&HashMap::new());assert!(m.alerts.contains_key("monitor:stale:codex:test"));
-        m.acknowledge("monitor:stale:codex:test",121000).unwrap();m.tick(123000,Ok(false),&[t.clone()],&HashMap::new());assert!(m.alerts.is_empty());
-        m.tick(241000,Ok(false),&[t.clone()],&HashMap::new());assert!(m.alerts.contains_key("monitor:stale:codex:test"));
-        t.updated_at=242000;m.tick(242000,Ok(false),&[t.clone()],&HashMap::new());assert!(!m.alerts.contains_key("monitor:stale:codex:test"));
-        t.status=Status::Completed;m.tick(500000,Ok(false),&[t],&HashMap::new());assert!(!m.alerts.contains_key("monitor:stale:codex:test"));
+    #[test] fn quiet_running_and_repairing_tasks_never_turn_red_from_elapsed_time() {
+        for status in [Status::Running,Status::Repairing] {
+            let mut m=Monitor::default();let mut t=task(1000);t.status=status;
+            for now in (1000..=1_201_000).step_by(2000) {
+                m.tick(now,Ok(false),&[t.clone()],&HashMap::new());assert!(m.alerts.is_empty());
+            }
+            m.tick(1_203_000,Ok(true),&[t],&HashMap::new());
+            assert!(m.alerts.contains_key("monitor:screen"));
+        }
     }
-    #[test] fn suspend_and_unreadable_desktop_are_not_reported_green() {
+    #[test] fn old_timeout_only_reminders_clear_without_manual_acknowledgement() {
+        let mut m=Monitor::default();m.raise("monitor:stale:codex:test","old timeout","old timeout",1000);
+        m.tick(3000,Ok(false),&[task(1000)],&HashMap::new());assert!(m.alerts.is_empty());
+    }
+    #[test] fn unreadable_desktop_alert_recovers_automatically() {
         let mut m=Monitor::default();m.tick(1000,Ok(false),&[task(1000)],&HashMap::new());
         m.tick(31000,Err("unavailable".into()),&[task(31000)],&HashMap::new());
-        assert!(m.alerts.contains_key("monitor:suspend"));assert!(m.alerts.contains_key("monitor:desktop"));
+        assert!(!m.alerts.contains_key("monitor:suspend"));assert!(m.alerts.contains_key("monitor:desktop"));
         m.tick(33000,Ok(false),&[task(33000)],&HashMap::new());assert!(!m.alerts.contains_key("monitor:desktop"));assert!(!m.alerts.contains_key("monitor:suspend"));
     }
     #[test] fn connection_fault_requires_actual_recovery() {
@@ -290,6 +272,13 @@ mod tests {
         let mut m=Monitor::default();m.tick(1000,Ok(false),&[task(1000)],&HashMap::new());
         let mut completed=task(30000);completed.status=Status::Completed;
         m.tick(31000,Ok(false),&[completed],&HashMap::new());assert!(m.alerts.is_empty());
+    }
+
+    #[test] fn a_monitoring_gap_alone_does_not_require_human_intervention() {
+        let mut m=Monitor::default();m.tick(1000,Ok(false),&[task(1000)],&HashMap::new());
+        m.tick(1_201_000,Ok(false),&[task(1000)],&HashMap::new());assert!(m.alerts.is_empty());
+        m.raise("monitor:suspend","old gap","old gap",1000);
+        m.tick(1_203_000,Ok(false),&[task(1000)],&HashMap::new());assert!(m.alerts.is_empty());
     }
 
 }
