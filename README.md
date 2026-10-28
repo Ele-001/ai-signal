@@ -2,6 +2,12 @@
 
 桌面悬浮状态灯，支持拖动、置顶和任务状态汇总。Tauri 2 + React + Vite，优先 macOS，包含 Windows 实现。
 
+## 下载与安装
+
+**[下载 macOS 安装包（M 系列）](https://github.com/Ele-001/ai-signal/raw/refs/heads/main/downloads/AI-Signal-0.1.5-macOS-arm64.dmg)** · [版本说明](docs/FALSE-ATTENTION-FIX.md)
+
+打开 DMG，将 AI Signal 拖入“应用程序”。更新前先退出旧版。安装包内含中文说明，日常使用无需安装开发工具。适用 macOS 12.3+ 的 Apple Silicon Mac；Intel 和 Windows 暂无已验证的安装包。
+
 ## 灯色说明
 
 ![AI Signal 五种状态：红灯常亮需要处理、黄灯规律双闪自动修复、绿灯不规则短闪运行、绿灯确认双闪后常亮已完成、全部熄灭空闲](docs/images/signal-states.png)
@@ -39,8 +45,8 @@
 
 ## 直接使用 macOS 应用
 
-1. 解压随交付提供的 `AI-Signal-macOS-arm64.zip`。
-2. 将 `AI Signal.app` 拖到「应用程序」，双击打开。
+1. 从上方下载 `AI-Signal-0.1.5-macOS-arm64.dmg` 并打开。
+2. 将 `AI Signal.app` 拖到安装盘中的 Applications（应用程序），从「应用程序」打开；更新前先退出旧版。
 3. 桌面左上角会出现悬浮灯。按住灯体拖动，点击底部状态文字打开控制面板。
 4. 在「任务」中手动模拟状态，或添加自己的任务。手动状态不是自动监控结果。
 5. 在「外观」中调整灯体样式、大小、透明度、置顶、动态灯效和声音。「连接」中查看本机事件入口与接入说明。

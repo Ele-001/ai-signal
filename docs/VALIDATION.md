@@ -1,5 +1,7 @@
 # AI Signal 验收记录
 
+0.1.5 单文件 DMG 的安装与校验记录见 [INSTALLER.md](INSTALLER.md)。
+
 最新 0.1.5 旧问题误报修复见 [FALSE-ATTENTION-FIX.md](FALSE-ATTENTION-FIX.md)。
 
 最新 0.1.4 长任务识别与刷新修复见 [TASK-DISCOVERY-FIX.md](TASK-DISCOVERY-FIX.md)。
