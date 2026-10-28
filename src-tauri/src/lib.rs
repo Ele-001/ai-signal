@@ -180,7 +180,7 @@ fn tray_icon() -> tauri::image::Image<'static> {
 pub fn run() {
     tauri::Builder::default()
         .manage(NativeState::default())
-        .invoke_handler(tauri::generate_handler![show_panel, hide_panel, show_widget, hide_widget, set_widget_preferences, bridge_info, list_external_tasks, remove_external_task, play_signal_sound, connections::list_connections, connections::task_sync_info, connections::refresh_connections, connections::set_connection, monitor::list_monitor_tasks, monitor::acknowledge_monitor])
+        .invoke_handler(tauri::generate_handler![show_panel, hide_panel, show_widget, hide_widget, set_widget_preferences, bridge_info, list_external_tasks, remove_external_task, play_signal_sound, connections::list_connections, connections::task_sync_info, connections::refresh_connections, connections::resolve_codex_question, connections::set_connection, monitor::list_monitor_tasks, monitor::acknowledge_monitor])
         .setup(|app| {
             setup_tray(app)?;
             bridge::start(app.handle().clone());

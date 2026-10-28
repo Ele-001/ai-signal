@@ -12,7 +12,7 @@ const CLAUDE_EVENTS: &[&str] = &["UserPromptSubmit", "PreToolUse", "PostToolUse"
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
-pub struct ConnectionSettings { pub codex: bool, pub claude: bool }
+pub struct ConnectionSettings { pub codex: bool, pub claude: bool, resolved_questions: Vec<String> }
 
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
@@ -25,7 +25,7 @@ fn claude_root(home: &Path) -> PathBuf { std::env::var_os("CLAUDE_CONFIG_DIR").m
 pub fn initialize(app: &tauri::AppHandle) {
     if let Ok(dir)=app.path().app_data_dir() {
         if let Ok(bytes)=fs::read(dir.join("connections.json")) {
-            if bytes.len()<4096 {if let Ok(settings)=serde_json::from_slice(&bytes) {*app.state::<NativeState>().connections.lock().expect("connections lock")=settings;}}
+            if bytes.len()<128*1024 {if let Ok(settings)=serde_json::from_slice(&bytes) {*app.state::<NativeState>().connections.lock().expect("connections lock")=settings;}}
         }
     }
     let app=app.clone();
@@ -204,8 +204,10 @@ fn configure_claude(path: &Path, helper: &Path, bridge: &Path, enabled: bool, ba
 #[derive(Clone, Default)]
 pub(crate) struct Rollout {id: Option<String>, cwd: Option<String>, phase: Option<Status>, blocked: bool, questions: HashMap<String,(bool,HashSet<u64>)>, subagent: bool}
 impl Rollout {
-    fn effective_phase(&self) -> Option<Status> {
-        if self.blocked || !self.questions.is_empty() {Some(Status::Attention)} else {self.phase.clone()}
+    #[cfg(test)]
+    fn effective_phase(&self) -> Option<Status> {self.phase_after_confirmation(&[])}
+    fn phase_after_confirmation(&self, resolved: &[String]) -> Option<Status> {
+        if self.blocked || self.questions.keys().any(|id|!resolved.contains(id)) {Some(Status::Attention)} else {self.phase.clone()}
     }
 }
 fn parse_rollout(bytes: &[u8], state: &mut Rollout) {
@@ -222,9 +224,9 @@ fn parse_rollout(bytes: &[u8], state: &mut Rollout) {
             Some("event_msg")=>match payload.get("type").and_then(Value::as_str) {
                 Some("task_started"|"turn_started")=>{state.phase=Some(Status::Running);state.blocked=false;},
                 Some("task_complete"|"turn_complete")=>state.phase=Some(Status::Completed),
-                Some("turn_aborted")=>state.phase=Some(Status::Idle),
+                Some("turn_aborted")=>{state.phase=Some(Status::Idle);state.questions.clear();state.blocked=false;},
                 Some("user_message")=>{
-                    if payload.get("message").and_then(Value::as_str).is_some_and(|text|!text.trim().starts_with("<send_user_message_question_reply>")) {state.questions.clear();}
+                    if payload.get("message").and_then(Value::as_str).is_some_and(|text|is_user_request(text)) {state.questions.clear();}
                 },
                 _=>{}
             },
@@ -250,6 +252,7 @@ fn parse_rollout(bytes: &[u8], state: &mut Rollout) {
                     Some("message") if payload.get("role").and_then(Value::as_str)==Some("user")=>{
                         for content in payload.get("content").and_then(Value::as_array).into_iter().flatten() {
                             let Some(text)=content.get("text").and_then(Value::as_str) else {continue;};
+                            if is_user_request(text) {state.questions.clear();}
                             let Some(text)=text.trim().strip_prefix("<send_user_message_question_reply>") else {continue;};
                             let Some((body,_))=text.split_once("</send_user_message_question_reply>") else {continue;};
                             let Ok(replies)=serde_json::from_str::<Vec<Value>>(body.trim()) else {continue;};
@@ -268,6 +271,18 @@ fn parse_rollout(bytes: &[u8], state: &mut Rollout) {
             _=>{}
         }
     }
+}
+
+// Context-only user-role records are not replies; real typed requests supersede old questions.
+fn is_user_request(text: &str) -> bool {
+    let mut text=text.trim();
+    loop {
+        let tag=["in-app-browser-context","external_codex_apps_open_page","environment_context"].into_iter().find(|tag|text.starts_with(&format!("<{tag}>")) || text.starts_with(&format!("<{tag} ")));
+        let Some(tag)=tag else {break;};
+        let Some((_,rest))=text.split_once(&format!("</{tag}>")) else {return false;};
+        text=rest.trim();
+    }
+    !text.is_empty() && !text.starts_with("<send_user_message_question_reply>")
 }
 
 // Inspect only tool-result error fields, never user prompts or assistant prose.
@@ -355,22 +370,49 @@ fn scan_codex(app: &tauri::AppHandle, cache: &mut HashMap<PathBuf,CachedRollout>
         if record.subagent {continue;}
         let task_id=format!("codex:{id}");
         let previous=cache.insert(path,CachedRollout{modified,len,offset,record:record.clone()});
-        let Some(phase)=record.effective_phase() else {continue;};
+        let resolved=app.state::<NativeState>().connections.lock().map_err(|e|e.to_string())?.resolved_questions.clone();
+        let Some(phase)=record.phase_after_confirmation(&resolved) else {continue;};
         {
             let state=app.state::<NativeState>();let mut evidence=state.attention_evidence.lock().map_err(|e|e.to_string())?;
             if phase==Status::Attention {
-                evidence.insert(task_id.clone(),if !record.questions.is_empty() {"正在等待用户回答，请打开 Codex 处理问题。"} else {"工具报告锁屏，请检查任务是否已恢复。"}.into());
+                evidence.insert(task_id.clone(),if !record.questions.is_empty() {"检测到待回答记录，请在 Codex 核对。"} else {"工具报告锁屏，请检查任务是否已恢复。"}.into());
             } else {evidence.remove(&task_id);}
         }
         if previous.is_none() && !matches!(phase,Status::Running|Status::Attention|Status::Repairing) && !app.state::<NativeState>().tasks.lock().map_err(|e|e.to_string())?.contains_key(&task_id) {continue;}
         let strong_source=app.state::<NativeState>().tasks.lock().map_err(|e|e.to_string())?.get(&task_id).is_some_and(|t|t.source.as_deref()==Some("Codex Hook"));
         if strong_source && phase!=Status::Attention {continue;}
         let title=titles.get(&id).cloned().unwrap_or_else(||record.cwd.as_deref().and_then(|p|Path::new(p).file_name()).map(|s|s.to_string_lossy().chars().take(180).collect::<String>()).unwrap_or_else(||"Codex 任务".into()));
-        bridge::publish_observed_task(app,ExternalTask{id:task_id,title,status:phase,source:Some("Codex · 本机识别".into()),message:Some(if !record.questions.is_empty() {"正在等待用户回答，请打开 Codex 处理问题。"} else if record.blocked {"工具报告锁屏，任务可能仍需人工恢复。"} else {"根据本机会话事件识别；本地格式可能随 Codex 版本变化。"}.into()),updated_at:0},modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64)?;
+        bridge::publish_observed_task(app,ExternalTask{id:task_id,title,status:phase.clone(),source:Some("Codex · 本机识别".into()),message:Some(if phase==Status::Attention && !record.questions.is_empty() {"检测到待回答记录，请在 Codex 核对。"} else if record.blocked {"工具报告锁屏，任务可能仍需人工恢复。"} else {"根据本机会话事件识别；本地格式可能随 Codex 版本变化。"}.into()),updated_at:0},modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64)?;
     }
     if incomplete {failures.push("近期会话超过 512 项，监测范围不完整，请检查任务。".into());}
     if !failures.is_empty() {return Err(format!("{} 项记录未完成识别：{}",failures.len(),failures[0]));}
     Ok(())
+}
+
+#[tauri::command]
+pub async fn resolve_codex_question(app: tauri::AppHandle, id: String) -> Result<(),String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state=app.state::<NativeState>();
+        let cache=state.scan_cache.lock().map_err(|e|e.to_string())?;
+        let record=&cache.values().find(|entry|entry.record.id.as_ref().is_some_and(|sid|format!("codex:{sid}")==id)).ok_or("未找到当前会话，请先刷新任务。")?.record;
+        if record.blocked || record.questions.is_empty() {return Err("当前不是可确认的待回答事项，请刷新任务并检查原因。".into());}
+        let mut task=state.tasks.lock().map_err(|e|e.to_string())?.get(&id).cloned().ok_or("任务已移除，请刷新。")?;
+        if task.status!=Status::Attention || task.source.as_deref()!=Some("Codex · 本机识别") {return Err("任务状态已变化，请刷新后检查。".into());}
+        let mut settings=state.connections.lock().map_err(|e|e.to_string())?;
+        let mut next=settings.clone();
+        for call_id in record.questions.keys() {
+            if call_id.len()>200 {return Err("问题记录格式异常，未修改状态。".into());}
+            if !next.resolved_questions.contains(call_id) {next.resolved_questions.push(call_id.clone());}
+        }
+        if next.resolved_questions.len()>512 {return Err("已处理记录达到上限，未修改状态。".into());}
+        write_json(&app.path().app_data_dir().map_err(|e|e.to_string())?.join("connections.json"),&serde_json::to_value(&next).map_err(|e|e.to_string())?)?;
+        task.status=record.phase_after_confirmation(&next.resolved_questions).unwrap_or(Status::Idle);
+        *settings=next;drop(settings);
+        state.attention_evidence.lock().map_err(|e|e.to_string())?.remove(&id);
+        task.message=Some("已确认这次问题已处理；后续新问题仍会提醒。".into());
+        let observed_at=task.updated_at;
+        bridge::publish_observed_task(&app,task,observed_at)
+    }).await.map_err(|e|e.to_string())?
 }
 
 pub fn hook_event(payload: &Value, provider: &str) -> Result<Option<ExternalTask>,String> {
@@ -557,6 +599,37 @@ mod tests {
         assert!(record.questions.is_empty());
     }
 
+    #[test] fn ordinary_user_replies_clear_old_questions_but_context_records_do_not() {
+        let mut record=Rollout{phase:Some(Status::Completed),..Rollout::default()};
+        record.questions.insert("old-question".into(),(true,HashSet::from([0])));
+        for text in ["<environment_context>date</environment_context>","<external_codex_apps_open_page>{}</external_codex_apps_open_page>","<in-app-browser-context source=\"ambient-ui-state\">context</in-app-browser-context>"] {
+            let item=json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text}]}});
+            parse_rollout(item.to_string().as_bytes(),&mut record);assert_eq!(record.effective_phase(),Some(Status::Attention));
+        }
+        let item=json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<in-app-browser-context source=\"ambient-ui-state\">context</in-app-browser-context>\n## My request:\nContinue with the next task"}]}});
+        parse_rollout(item.to_string().as_bytes(),&mut record);
+        assert!(record.questions.is_empty());assert_eq!(record.effective_phase(),Some(Status::Completed));
+    }
+    #[test] fn cancelling_a_turn_clears_pending_questions_and_lock_errors() {
+        let mut record=Rollout{phase:Some(Status::Running),blocked:true,..Rollout::default()};
+        record.questions.insert("cancelled-question".into(),(true,HashSet::from([0])));
+        parse_rollout(json!({"type":"event_msg","payload":{"type":"turn_aborted"}}).to_string().as_bytes(),&mut record);
+        assert!(record.questions.is_empty());assert!(!record.blocked);assert_eq!(record.effective_phase(),Some(Status::Idle));
+    }
+    #[test] fn confirmation_survives_restart_without_hiding_new_questions_or_locks() {
+        let mut record=Rollout{phase:Some(Status::Completed),..Rollout::default()};
+        record.questions.insert("first".into(),(true,HashSet::from([0,1])));
+        let mut settings=ConnectionSettings::default();settings.resolved_questions.push("first".into());
+        let restored:ConnectionSettings=serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(record.phase_after_confirmation(&restored.resolved_questions),Some(Status::Completed));
+        record.phase=Some(Status::Running);assert_eq!(record.phase_after_confirmation(&restored.resolved_questions),Some(Status::Running));
+        record.questions.insert("new".into(),(true,HashSet::from([0])));
+        assert_eq!(record.phase_after_confirmation(&restored.resolved_questions),Some(Status::Attention));
+        record.questions.remove("new");record.blocked=true;
+        assert_eq!(record.phase_after_confirmation(&restored.resolved_questions),Some(Status::Attention));
+        let old:ConnectionSettings=serde_json::from_str("{\"codex\":true,\"claude\":false}").unwrap();assert!(old.codex);assert!(old.resolved_questions.is_empty());
+    }
+
     #[test]
     #[ignore = "read-only verification against explicitly selected local histories"]
     fn replay_selected_active_histories() {
@@ -566,7 +639,8 @@ mod tests {
             let (record,offset)=rollout_from_file(&path,None).unwrap();
             assert!(record.id.is_some());assert!(!record.subagent);
             println!("task {:?}: phase {:?}, blocked {}, pending questions {}",record.id,record.phase,record.blocked,record.questions.len());
-            assert!(matches!(record.effective_phase(),Some(Status::Running|Status::Attention|Status::Repairing)));
+            assert!(record.effective_phase().is_some());
+            if std::env::var_os("AI_SIGNAL_REPLAY_EXPECT_NO_PENDING").is_some() {assert!(record.questions.is_empty(),"old question was not cleared");}
             assert!(offset>0);
         }
         println!("All selected real local tasks recovered on cold start.");

@@ -1,5 +1,7 @@
 # AI Signal 验收记录
 
+最新 0.1.5 旧问题误报修复见 [FALSE-ATTENTION-FIX.md](FALSE-ATTENTION-FIX.md)。
+
 最新 0.1.4 长任务识别与刷新修复见 [TASK-DISCOVERY-FIX.md](TASK-DISCOVERY-FIX.md)。
 
 最新 0.1.3 静默状态修复见 [QUIET-STATE-FIX.md](QUIET-STATE-FIX.md)。
