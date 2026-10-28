@@ -1,10 +1,12 @@
 use crate::{bridge::{self, ExternalTask, Status}, NativeState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{BufRead, BufReader, Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{Emitter, Manager};
 
+#[cfg(test)]
 const MAX_SCAN_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_RECORD_BYTES: u64 = 64 * 1024 * 1024;
 const OWN_MARKER: &str = "--ai-signal-hook";
 const CLAUDE_EVENTS: &[&str] = &["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Notification", "Stop", "SessionEnd"];
 
@@ -27,19 +29,44 @@ pub fn initialize(app: &tauri::AppHandle) {
         }
     }
     let app=app.clone();
-    std::thread::spawn(move || {
-        let mut cache=HashMap::new();
-        loop {
-            let enabled=app.state::<NativeState>().connections.lock().map(|s|s.codex).unwrap_or(false);
-            if enabled {
-                let result=scan_codex(&app, &mut cache);
-                if let Ok(mut errors)=app.state::<NativeState>().connection_errors.lock() {
-                    match result {Ok(())=>{errors.remove("codex");},Err(e)=>{errors.insert("codex".into(),e);}}
-                }
-            } else {cache.clear();}
-            std::thread::sleep(Duration::from_secs(3));
-        }
+    std::thread::spawn(move || loop {
+        let _=run_scan(&app,false);
+        std::thread::sleep(Duration::from_secs(3));
     });
+}
+
+#[derive(Default, Clone, Serialize)]
+#[serde(rename_all="camelCase")]
+pub(crate) struct SyncInfo { scanning: bool, last_synced_at: u64, error: Option<String>, enabled: bool }
+#[derive(Clone)]
+pub(crate) struct CachedRollout { modified: SystemTime, len: u64, offset: u64, record: Rollout }
+
+fn run_scan(app: &tauri::AppHandle, force: bool) -> Result<(),String> {
+    let state=app.state::<NativeState>();
+    let mut cache=state.scan_cache.lock().map_err(|e|e.to_string())?;
+    if !state.connections.lock().map_err(|e|e.to_string())?.codex {cache.clear();return Ok(());}
+    state.sync_info.lock().map_err(|e|e.to_string())?.scanning=true;
+    if force {cache.clear();}
+    let result=scan_codex(app,&mut cache);
+    if let Ok(mut errors)=state.connection_errors.lock() {
+        match &result {Ok(())=>{errors.remove("codex");},Err(e)=>{errors.insert("codex".into(),e.clone());}}
+    }
+    if let Ok(mut info)=state.sync_info.lock() {
+        info.scanning=false;info.error=result.as_ref().err().cloned();
+        if result.is_ok() {info.last_synced_at=now_ms();}
+    }
+    result
+}
+#[tauri::command]
+pub fn task_sync_info(app: tauri::AppHandle) -> Result<SyncInfo,String> {
+    let state=app.state::<NativeState>();
+    let mut info=state.sync_info.lock().map_err(|e|e.to_string())?.clone();
+    info.enabled=state.connections.lock().map_err(|e|e.to_string())?.codex;
+    Ok(info)
+}
+#[tauri::command]
+pub async fn refresh_connections(app: tauri::AppHandle) -> Result<(),String> {
+    tauri::async_runtime::spawn_blocking(move ||run_scan(&app,true)).await.map_err(|e|e.to_string())?
 }
 
 pub fn accepts(app: &tauri::AppHandle, id: &str) -> bool {
@@ -83,6 +110,7 @@ pub async fn set_connection(app: tauri::AppHandle, provider: String, enabled: bo
     write_json(&dir.join("connections.json"), &serde_json::to_value(&next).map_err(|e|e.to_string())?)?;
     *settings=next;
     drop(settings);
+    if provider=="codex" {state.scan_cache.lock().map_err(|e|e.to_string())?.clear();}
     if !enabled {
         let prefix=format!("{provider}:");
         state.attention_evidence.lock().map_err(|e|e.to_string())?.retain(|id,_|!id.starts_with(&prefix));
@@ -257,21 +285,23 @@ fn blocked_output(value: &Value) -> bool {
     }
 }
 
-fn rollout_from_file(path: &Path, len: u64, previous: Option<&Rollout>) -> Result<Rollout,String> {
+// Replay lifecycle evidence on cold start; then consume only complete appended lines.
+fn rollout_from_file(path: &Path, previous: Option<&CachedRollout>) -> Result<(Rollout,u64),String> {
     let mut file=File::open(path).map_err(|e|e.to_string())?;
-    let mut state=previous.cloned().unwrap_or_default();
-    if len>MAX_SCAN_BYTES {
-        let mut head=Vec::new();Read::by_ref(&mut file).take(256*1024).read_to_end(&mut head).map_err(|e|e.to_string())?;
-        let mut metadata=Rollout::default();
-        parse_rollout(&head,&mut metadata);
-        if state.id.is_none() {state.id=metadata.id;}
-        if state.cwd.is_none() {state.cwd=metadata.cwd;}
-        state.subagent |= metadata.subagent;
-        file.seek(SeekFrom::Start(len-MAX_SCAN_BYTES)).map_err(|e|e.to_string())?;
+    let mut offset=previous.map(|p|p.offset).unwrap_or(0);
+    file.seek(SeekFrom::Start(offset)).map_err(|e|e.to_string())?;
+    let mut state=previous.map(|p|p.record.clone()).unwrap_or_default();
+    let mut reader=BufReader::new(file);
+    let mut line=Vec::new();
+    loop {
+        line.clear();
+        let count=Read::by_ref(&mut reader).take(MAX_RECORD_BYTES+1).read_until(b'\n',&mut line).map_err(|e|e.to_string())?;
+        if count==0 {break;}
+        if count as u64>MAX_RECORD_BYTES {return Err("会话中有超大记录，识别未完成，请检查任务。".into());}
+        if line.last()!=Some(&b'\n') {break;}
+        parse_rollout(&line,&mut state);offset+=count as u64;
     }
-    let mut bytes=Vec::new();Read::by_ref(&mut file).take(MAX_SCAN_BYTES).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
-    parse_rollout(&bytes,&mut state);
-    Ok(state)
+    Ok((state,offset))
 }
 
 fn collect_files(root: &Path, depth: u8, budget: &mut usize, files: &mut Vec<(SystemTime,PathBuf,u64)>) -> Result<(),String> {
@@ -306,24 +336,25 @@ fn read_thread_titles(root: &Path) -> HashMap<String,String> {
     titles
 }
 
-fn scan_codex(app: &tauri::AppHandle, cache: &mut HashMap<PathBuf,(SystemTime,u64,Rollout)>) -> Result<(),String> {
+fn scan_codex(app: &tauri::AppHandle, cache: &mut HashMap<PathBuf,CachedRollout>) -> Result<(),String> {
     let home=app.path().home_dir().map_err(|e|e.to_string())?;
     let root=code_root(&home).join("sessions");
     if !root.is_dir() {return Err("Codex 会话目录不可用".into());}
     fs::read_dir(&root).map_err(|_|"无法读取 Codex 会话目录，请检查磁盘和权限。".to_string())?;
     let titles=read_thread_titles(&code_root(&home));
     let mut files=Vec::new();collect_files(&root,0,&mut 10000,&mut files)?;
-    let incomplete=files.len()>32;
-    files.sort_by(|a,b|b.0.cmp(&a.0));files.truncate(32);
-    cache.retain(|_,(modified,_,_)|modified.elapsed().unwrap_or_default()<Duration::from_secs(24*60*60));
+    let incomplete=files.len()>512;
+    files.sort_by(|a,b|b.0.cmp(&a.0));files.truncate(512);
+    cache.retain(|_,entry|entry.modified.elapsed().unwrap_or_default()<Duration::from_secs(24*60*60));
+    let mut failures=Vec::new();
     for (modified,path,len) in files {
-        if cache.get(&path).is_some_and(|(old,_,_)|*old==modified) {continue;}
-        let previous_record=cache.get(&path).filter(|(_,old_len,_)|*old_len<=len).map(|(_,_,record)|record);
-        let record=rollout_from_file(&path,len,previous_record)?;
+        if cache.get(&path).is_some_and(|old|old.modified==modified && old.len==len) {continue;}
+        let previous_record=cache.get(&path).filter(|old|old.len<=len);
+        let (record,offset)=match rollout_from_file(&path,previous_record) {Ok(value)=>value,Err(error)=>{failures.push(error);continue;}};
         let Some(id)=record.id.clone().filter(|id|!id.is_empty()&&id.len()<=100&&!id.chars().any(char::is_control)) else {continue;};
         if record.subagent {continue;}
         let task_id=format!("codex:{id}");
-        let previous=cache.insert(path,(modified,len,record.clone()));
+        let previous=cache.insert(path,CachedRollout{modified,len,offset,record:record.clone()});
         let Some(phase)=record.effective_phase() else {continue;};
         {
             let state=app.state::<NativeState>();let mut evidence=state.attention_evidence.lock().map_err(|e|e.to_string())?;
@@ -331,13 +362,14 @@ fn scan_codex(app: &tauri::AppHandle, cache: &mut HashMap<PathBuf,(SystemTime,u6
                 evidence.insert(task_id.clone(),if !record.questions.is_empty() {"正在等待用户回答，请打开 Codex 处理问题。"} else {"工具报告锁屏，请检查任务是否已恢复。"}.into());
             } else {evidence.remove(&task_id);}
         }
-        if previous.is_none() && !matches!(phase,Status::Running|Status::Attention|Status::Repairing) {continue;}
+        if previous.is_none() && !matches!(phase,Status::Running|Status::Attention|Status::Repairing) && !app.state::<NativeState>().tasks.lock().map_err(|e|e.to_string())?.contains_key(&task_id) {continue;}
         let strong_source=app.state::<NativeState>().tasks.lock().map_err(|e|e.to_string())?.get(&task_id).is_some_and(|t|t.source.as_deref()==Some("Codex Hook"));
         if strong_source && phase!=Status::Attention {continue;}
         let title=titles.get(&id).cloned().unwrap_or_else(||record.cwd.as_deref().and_then(|p|Path::new(p).file_name()).map(|s|s.to_string_lossy().chars().take(180).collect::<String>()).unwrap_or_else(||"Codex 任务".into()));
         bridge::publish_observed_task(app,ExternalTask{id:task_id,title,status:phase,source:Some("Codex · 本机识别".into()),message:Some(if !record.questions.is_empty() {"正在等待用户回答，请打开 Codex 处理问题。"} else if record.blocked {"工具报告锁屏，任务可能仍需人工恢复。"} else {"根据本机会话事件识别；本地格式可能随 Codex 版本变化。"}.into()),updated_at:0},modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64)?;
     }
-    if incomplete {return Err("近期会话超过 32 项，监测范围不完整，请检查任务。".into());}
+    if incomplete {failures.push("近期会话超过 512 项，监测范围不完整，请检查任务。".into());}
+    if !failures.is_empty() {return Err(format!("{} 项记录未完成识别：{}",failures.len(),failures[0]));}
     Ok(())
 }
 
@@ -468,14 +500,23 @@ mod tests {
         send_hook(&path,&event).unwrap();server.join().unwrap();fs::remove_dir_all(root).unwrap();
     }
 
-    #[test] fn a_truncated_large_history_never_inherits_an_old_start_as_current_activity() {
-        let root=std::env::temp_dir().join(format!("ai-signal-tail-test-{}-{}",std::process::id(),now_ms()));fs::create_dir_all(&root).unwrap();
-        let path=root.join("history.jsonl");
-        let mut bytes=b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"s1\",\"cwd\":\"/demo\"}}\n{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}\n".to_vec();
-        bytes.extend(std::iter::repeat_n(b' ',MAX_SCAN_BYTES as usize+1024));bytes.push(b'\n');fs::write(&path,&bytes).unwrap();
-        assert_eq!(rollout_from_file(&path,bytes.len() as u64,None).unwrap().phase,None);
-        let previous=Rollout{id:Some("s1".into()),phase:Some(Status::Running),..Rollout::default()};
-        assert_eq!(rollout_from_file(&path,bytes.len() as u64,Some(&previous)).unwrap().phase,Some(Status::Running));
+    #[test] fn cold_start_recovers_two_long_running_sessions_and_incremental_partial_lines() {
+        let root=std::env::temp_dir().join(format!("signal-replay-{}-{}",std::process::id(),now_ms()));fs::create_dir_all(&root).unwrap();
+        for id in ["first","second"] {
+            let path=root.join(format!("{id}.jsonl"));
+            let mut file=File::create(&path).unwrap();
+            writeln!(file,"{}",json!({"type":"session_meta","payload":{"id":id}})).unwrap();
+            writeln!(file,"{}",json!({"type":"event_msg","payload":{"type":"task_started"}})).unwrap();
+            let filler=b"{\"type\":\"ignored\"}\n";
+            for _ in 0..(MAX_SCAN_BYTES as usize/filler.len()+2) {file.write_all(filler).unwrap();}
+            writeln!(file,"{}",json!({"type":"compacted","content":"x".repeat(MAX_SCAN_BYTES as usize+1)})).unwrap();
+            file.write_all(b"{\"type\":\"event_msg\",").unwrap();drop(file);
+            let (record,offset)=rollout_from_file(&path,None).unwrap();assert_eq!(record.id.as_deref(),Some(id));assert_eq!(record.phase,Some(Status::Running));
+            let cached=CachedRollout{modified:SystemTime::now(),len:fs::metadata(&path).unwrap().len(),offset,record};
+            OpenOptions::new().append(true).open(&path).unwrap().write_all(b"\"payload\":{\"type\":\"task_complete\"}}\n").unwrap();
+            let (done,end)=rollout_from_file(&path,Some(&cached)).unwrap();assert_eq!(done.phase,Some(Status::Completed));assert_eq!(end,fs::metadata(&path).unwrap().len());
+            assert_eq!(rollout_from_file(&path,None).unwrap().0.phase,Some(Status::Completed));
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -514,6 +555,21 @@ mod tests {
         parse_rollout(serde_json::to_string(&question).unwrap().as_bytes(),&mut record);
         parse_rollout(b"{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Continue with this change\"}}",&mut record);
         assert!(record.questions.is_empty());
+    }
+
+    #[test]
+    #[ignore = "read-only verification against explicitly selected local histories"]
+    fn replay_selected_active_histories() {
+        let paths:Vec<PathBuf>=serde_json::from_str(&std::env::var("AI_SIGNAL_REPLAY_PATHS").expect("selected paths")).unwrap();
+        assert!(paths.len()>=2);
+        for path in paths {
+            let (record,offset)=rollout_from_file(&path,None).unwrap();
+            assert!(record.id.is_some());assert!(!record.subagent);
+            println!("task {:?}: phase {:?}, blocked {}, pending questions {}",record.id,record.phase,record.blocked,record.questions.len());
+            assert!(matches!(record.effective_phase(),Some(Status::Running|Status::Attention|Status::Repairing)));
+            assert!(offset>0);
+        }
+        println!("All selected real local tasks recovered on cold start.");
     }
 
     #[test]

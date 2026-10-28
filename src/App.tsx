@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Check, GripHorizontal, Pin, PinOff, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { Signal } from './Signal';
 import {Connections} from './Connections';
+import {TaskSync} from './TaskSync';
 import type {BridgeInfo} from './Connections';
 import { aggregate, defaults, info, statuses } from './model';
 import type { SignalStyle, Status, Task } from './model';
@@ -95,7 +96,7 @@ export default function App() {
           <div><h1><span className={`status-dot ${status}`}/>{info[status].label}</h1>{tasks.length>0&&<p>{tasks.length} 项任务{attention>0&&` · ${attention} 项等待处理`}</p>}</div>
         </section>
         <section className="simulator" aria-label="手动模拟"><span>模拟状态</span><div className="status-options">{statuses.map(s=><button key={s} disabled={store.tasks.length>=100&&!store.tasks.some(t=>t.id==='manual-simulator')} aria-pressed={store.tasks.find(t=>t.id==='manual-simulator')?.status===s} className={store.tasks.find(t=>t.id==='manual-simulator')?.status===s?'selected':''} onClick={()=>actions.simulate(s)}><i className={`status-dot ${s}`}/>{labels[s]}</button>)}</div></section>
-        <TaskList tasks={tasks} now={now} onError={setError}/>
+        <TaskSync onError={setError}/><TaskList tasks={tasks} now={now} onError={setError}/>
       </>}
       {page==='appearance'&&<>
         <h1 className="page-title">外观</h1>

@@ -1,5 +1,7 @@
 # AI Signal 验收记录
 
+最新 0.1.4 长任务识别与刷新修复见 [TASK-DISCOVERY-FIX.md](TASK-DISCOVERY-FIX.md)。
+
 最新 0.1.3 静默状态修复见 [QUIET-STATE-FIX.md](QUIET-STATE-FIX.md)。
 
 最新 0.1.2 自动解除修复见 [RECOVERY-FIX.md](RECOVERY-FIX.md)。0.1.1 红灯修复与新增测试见 [ATTENTION-FIX.md](ATTENTION-FIX.md)。以下为初始 MVP 验收记录。
