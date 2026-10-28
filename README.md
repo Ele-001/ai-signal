@@ -1,16 +1,18 @@
-# AI Signal 0.1.5
+# AI红路灯 0.1.6
 
 桌面悬浮状态灯，支持拖动、置顶和任务状态汇总。Tauri 2 + React + Vite，优先 macOS，包含 Windows 实现。
 
+原名 AI Signal。更名后保留已有本机设置、连接和手动任务；更新前请退出旧版。新旧应用名不同，安装新版后可将旧的 `AI Signal.app` 移到废纸篓，勿同时运行两版。
+
 ## 下载与安装
 
-**[下载 macOS 安装包（M 系列）](https://github.com/Ele-001/ai-signal/raw/refs/heads/main/downloads/AI-Signal-0.1.5-macOS-arm64.dmg)** · [版本说明](docs/FALSE-ATTENTION-FIX.md)
+**[下载 macOS 安装包（M 系列）](https://github.com/Ele-001/ai-signal/raw/refs/heads/main/downloads/AI%E7%BA%A2%E8%B7%AF%E7%81%AF-0.1.6-macOS-arm64.dmg)** · [版本说明](docs/FALSE-ATTENTION-FIX.md)
 
-打开 DMG，将 AI Signal 拖入“应用程序”。更新前先退出旧版。安装包内含中文说明，日常使用无需安装开发工具。适用 macOS 12.3+ 的 Apple Silicon Mac；Intel 和 Windows 暂无已验证的安装包。
+打开 DMG，将 AI红路灯 拖入“应用程序”。更新前先退出旧版。安装包内含中文说明，日常使用无需安装开发工具。适用 macOS 12.3+ 的 Apple Silicon Mac；Intel 和 Windows 暂无已验证的安装包。
 
 ## 灯色说明
 
-![AI Signal 五种状态：红灯常亮需要处理、黄灯规律双闪自动修复、绿灯不规则短闪运行、绿灯确认双闪后常亮已完成、全部熄灭空闲](docs/images/signal-states.png)
+![AI红路灯 五种状态：红灯常亮需要处理、黄灯规律双闪自动修复、绿灯不规则短闪运行、绿灯确认双闪后常亮已完成、全部熄灭空闲](docs/images/signal-states.png)
 
 | 灯色与灯效 | 什么时候出现 | 你需要做什么 |
 | --- | --- | --- |
@@ -45,8 +47,8 @@
 
 ## 直接使用 macOS 应用
 
-1. 从上方下载 `AI-Signal-0.1.5-macOS-arm64.dmg` 并打开。
-2. 将 `AI Signal.app` 拖到安装盘中的 Applications（应用程序），从「应用程序」打开；更新前先退出旧版。
+1. 从上方下载 `AI红路灯-0.1.6-macOS-arm64.dmg` 并打开。
+2. 将 `AI红路灯.app` 拖到安装盘中的 Applications（应用程序），从「应用程序」打开；更新前先退出旧版。
 3. 桌面左上角会出现悬浮灯。按住灯体拖动，点击底部状态文字打开控制面板。
 4. 在「任务」中手动模拟状态，或添加自己的任务。手动状态不是自动监控结果。
 5. 在「外观」中调整灯体样式、大小、透明度、置顶、动态灯效和声音。「连接」中查看本机事件入口与接入说明。
@@ -82,7 +84,7 @@ npm ci
 npm run desktop
 ```
 
-`desktop` 会同时启动 Vite 和原生应用。若此前运行了 `npm run dev`，先停止占用 1420 端口的预览进程。应用退出请用托盘「退出 AI Signal」或终端 Ctrl+C。
+`desktop` 会同时启动 Vite 和原生应用。若此前运行了 `npm run dev`，先停止占用 1420 端口的预览进程。应用退出请用托盘「退出 AI红路灯」或终端 Ctrl+C。
 
 只看可交互界面，不启用原生窗口、托盘或事件桥：
 
@@ -100,7 +102,7 @@ macOS，在对应芯片的 Mac 上运行：
 npm run bundle -- --bundles app
 ```
 
-输出：`src-tauri/target/release/bundle/macos/AI Signal.app`。需要 DMG 时可用 `npm run bundle -- --bundles dmg`。Intel 目标为 `x86_64-apple-darwin`；通用二进制目标为 `universal-apple-darwin`，需先安装对应 Rust targets 与 Apple 构建环境。
+输出：`src-tauri/target/release/bundle/macos/AI红路灯.app`。需要 DMG 时可用 `npm run bundle -- --bundles dmg`。Intel 目标为 `x86_64-apple-darwin`；通用二进制目标为 `universal-apple-darwin`，需先安装对应 Rust targets 与 Apple 构建环境。
 
 Windows，在安装好前置环境的 Windows 机器运行：
 

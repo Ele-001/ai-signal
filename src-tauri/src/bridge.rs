@@ -130,13 +130,13 @@ pub fn start(app: tauri::AppHandle) {
                             let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
                             handle_stream(&app, &mut stream, &token, port);
                         }
-                        Err(error) => eprintln!("AI Signal bridge: {error}"),
+                        Err(error) => eprintln!("AI红路灯 bridge: {error}"),
                     }
                 }
-            }).expect("AI Signal bridge thread could not start");
+            }).expect("AI红路灯 bridge thread could not start");
         }
         Err(error) => {
-            eprintln!("AI Signal bridge unavailable: {error}");
+            eprintln!("AI红路灯 bridge unavailable: {error}");
             *app.state::<NativeState>().bridge.lock().expect("bridge info lock") = BridgeInfo::unavailable(error);
         }
     }

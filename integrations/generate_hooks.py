@@ -12,7 +12,7 @@ from codex_hook import EVENT_STATUS
 
 
 def configuration(script, python_posix="python3", script_windows=None, python_windows="python"):
-    result = {"description": "AI Signal local status indicator. Review these commands before trusting them.", "hooks": {}}
+    result = {"description": "AI红路灯 local status indicator. Review these commands before trusting them.", "hooks": {}}
     for name in EVENT_STATUS:
         handler = {
             "type": "command",

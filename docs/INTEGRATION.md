@@ -1,12 +1,12 @@
 # 软件连接与任务识别
 
-AI Signal 提供本机事件入口和一个无第三方依赖的 Python 3 适配器。桌面应用必须先启动；浏览器预览没有原生事件服务。此项目没有修改你的 `~/.codex` 配置，没有自动信任 Hook，也没有读取所有 Codex Desktop 会话。
+AI红路灯 提供本机事件入口和一个无第三方依赖的 Python 3 适配器。桌面应用必须先启动；浏览器预览没有原生事件服务。此项目没有修改你的 `~/.codex` 配置，没有自动信任 Hook，也没有读取所有 Codex Desktop 会话。
 
 
 ## 连接 Codex
 
 1. 先运行一次 Codex，使本机会话目录存在。
-2. 在 AI Signal「连接」中点击 Codex 的「连接」。
+2. 在 AI红路灯「连接」中点击 Codex 的「连接」。
 3. 应用每 3 秒检查近期有更新的本机会话，自动将有明确开始事件、尚未结束的任务加入列表；优先使用会话标题，缺少标题时使用项目目录名。
 4. 断开后停止识别，并移除该来源的临时任务。重新打开应用会记住连接开关，并重新识别仍可读取的运行会话。
 
@@ -35,7 +35,7 @@ AI Signal 提供本机事件入口和一个无第三方依赖的 Python 3 适配
 
 2026-10-24 核对了 [OpenAI 官方 Hooks 文档](https://learn.chatgpt.com/docs/hooks)。官方接口通过标准输入传入 JSON，包含 `hook_event_name`、`session_id`、`cwd`；配置支持 `commandWindows`。Hook 需要审阅并信任。`PermissionRequest` 对应审批请求；`Stop` 对应一轮结束。工具结果的格式由工具决定。
 
-本项目采取以下映射，这些是 AI Signal 的显示规则：
+本项目采取以下映射，这些是 AI红路灯 的显示规则：
 
 | 收到的事件 | 灯与状态 | 解释 |
 | --- | --- | --- |
@@ -49,7 +49,7 @@ AI Signal 提供本机事件入口和一个无第三方依赖的 Python 3 适配
 
 ## 先验证本机链路
 
-在项目根目录打开终端，先运行 AI Signal 桌面应用，再执行：
+在项目根目录打开终端，先运行 AI红路灯 桌面应用，再执行：
 
 ```sh
 python3 integrations/codex_hook.py --status running --task-id integration-check --title "联动测试" --strict
@@ -79,12 +79,12 @@ python3 integrations/generate_hooks.py
 Windows 上运行同一生成器会写入 `commandWindows`。如果在 macOS 为另一台 Windows 机器准备配置，可明确传入那台机器的路径：
 
 ```sh
-python3 integrations/generate_hooks.py --script-windows 'C:\AI Signal\integrations\codex_hook.py' --python-windows python
+python3 integrations/generate_hooks.py --script-windows 'C:\AI红路灯\integrations\codex_hook.py' --python-windows python
 ```
 
 确认路径和 Python 命令适用于目标机器，然后审阅 JSON。若已有 `hooks.json`，合并 `hooks` 下的事件数组，保留原来的 Hook。可放入一个项目的 `.codex/hooks.json`，逐项目试用；也可按你的需要合并到用户级配置。不要直接覆盖现有文件。
 
-安装后在支持这些 Hook 的 Codex 客户端中完成审阅与信任；官方 CLI 提供 `/hooks`。修改 Hook 定义后需要重新审阅。然后用一个真实会话提交请求、触发审批并结束一轮，观察 AI Signal 中是否出现来源为 “Codex Hook” 的任务。只有观察到这一步，才能把**该客户端、该配置范围**标为已验证自动联动。没有实际收到事件时，继续使用手动状态，不应把静默理解成一切正常。
+安装后在支持这些 Hook 的 Codex 客户端中完成审阅与信任；官方 CLI 提供 `/hooks`。修改 Hook 定义后需要重新审阅。然后用一个真实会话提交请求、触发审批并结束一轮，观察 AI红路灯 中是否出现来源为 “Codex Hook” 的任务。只有观察到这一步，才能把**该客户端、该配置范围**标为已验证自动联动。没有实际收到事件时，继续使用手动状态，不应把静默理解成一切正常。
 
 ## 本机接口与隐私
 

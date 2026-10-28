@@ -1,23 +1,27 @@
 # macOS 单文件安装包
 
-版本：0.1.5。打包日期：2026-10-28。
+版本：0.1.6。打包日期：2026-10-28。
 
-下载：[AI-Signal-0.1.5-macOS-arm64.dmg](../downloads/AI-Signal-0.1.5-macOS-arm64.dmg?raw=true)。安装包位于本仓库的 downloads 目录。
+下载：[AI红路灯-0.1.6-macOS-arm64.dmg](../downloads/AI%E7%BA%A2%E8%B7%AF%E7%81%AF-0.1.6-macOS-arm64.dmg?raw=true)。安装包位于本仓库的 downloads 目录。
 
-安装盘只包含 `AI Signal.app`、指向 `/Applications` 的安装入口和中文 `安装说明.html`。打开后拖入“应用程序”；更新前退出旧版。源码由 GitHub 单独提供，日常使用无需安装 Node.js、Rust 或其他开发工具。
+安装盘只包含 `AI红路灯.app`、指向 `/Applications` 的安装入口和中文 `安装说明.html`。打开后拖入“应用程序”；更新前退出旧版。源码由 GitHub 单独提供，日常使用无需安装 Node.js、Rust 或其他开发工具。
 
 适用 Apple Silicon（M 系列）、macOS 12.3+；实测环境为 macOS 26.3，未另测最低系统版本、Intel 或 Windows。
 
 ## 验证
 
 - 压缩磁盘映像完整性校验通过。
-- 只读挂载后确认版本 0.1.5、arm64 可执行文件、Applications 链接及中文安装说明。
+- 只读挂载后确认版本 0.1.6、arm64 可执行文件、Applications 链接及中文安装说明。
 - 挂载应用通过 `codesign --verify --deep --strict`；二进制与封装前的签名副本一致。
 - 使用本机临时签名封装完整应用资源，未使用 Developer ID 证书、未公证；首次打开可能需要按系统提示确认来源，无需关闭安全保护。
-- 本次只整合已验证的 0.1.5 应用，未改变业务代码。
+- 本次只整合已验证的 0.1.6 应用，未改变业务代码。
 
-文件大小：3,540,157 字节。SHA256：
+文件大小：3,110,598 字节。SHA256：
 
 ```text
-32dddfdd42d1c253cb49a93961f68c0b3828b3c394cf6257588d051e41b9fdbe
+d16892d0826fbb0618d187051c2c45511e0d36cbe3f35131157bcd6143483751
 ```
+
+## 0.1.6
+
+应用名称统一改为“AI红路灯”，窗口、托盘菜单、提示和安装包名称同步更新。应用标识 `io.aisignal.desktop`、事件接口和本机存储键保持不变，继续使用旧版设置。设置恢复测试及前端 8 项测试通过。

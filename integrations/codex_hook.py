@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Forward a Codex lifecycle event to the local AI Signal desktop bridge."""
+"""Forward a Codex lifecycle event to the local AI红路灯 desktop bridge."""
 
 import argparse
 import json
@@ -152,7 +152,7 @@ def main(argv=None):
         return 0
     except (OSError, ValueError, urllib.error.URLError) as error:
         # Monitoring must never approve, deny or block an AI action.
-        print(f"AI Signal: event was not delivered ({error}). Open the desktop app first.", file=sys.stderr)
+        print(f"AI红路灯: event was not delivered ({error}). Open the desktop app first.", file=sys.stderr)
         return 1 if args.strict else 0
     finally:
         if stop_output:

@@ -1,5 +1,5 @@
 {
-  "description": "AI Signal local status indicator. Review these commands before trusting them.",
+  "description": "AI红路灯 local status indicator. Review these commands before trusting them.",
   "hooks": {
     "UserPromptSubmit": [
       {

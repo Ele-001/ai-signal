@@ -138,12 +138,12 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let panel = MenuItem::with_id(app, "open-panel", "打开控制台", true, None::<&str>)?;
     let pin = CheckMenuItem::with_id(app, "pin-widget", "悬浮灯置顶", true, true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "退出 AI Signal", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出 AI红路灯", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &hide, &panel, &pin, &separator, &quit])?;
     *app.state::<NativeState>().pin_menu.lock().expect("pin menu lock") = Some(pin);
     TrayIconBuilder::with_id("ai-signal")
         .icon(tray_icon())
-        .tooltip("AI Signal · AI 工作状态")
+        .tooltip("AI红路灯 · AI 工作状态")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {
@@ -158,7 +158,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 "quit" => { app.exit(0); Ok(()) }
                 _ => Ok(()),
             };
-            if let Err(error) = result { eprintln!("AI Signal tray: {error}"); }
+            if let Err(error) = result { eprintln!("AI红路灯 tray: {error}"); }
         })
         .build(app)?;
     Ok(())
@@ -191,9 +191,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                if let Err(error) = window.hide() { eprintln!("AI Signal hide: {error}"); }
+                if let Err(error) = window.hide() { eprintln!("AI红路灯 hide: {error}"); }
             }
         })
         .run(tauri::generate_context!())
-        .expect("AI Signal could not start");
+        .expect("AI红路灯 could not start");
 }

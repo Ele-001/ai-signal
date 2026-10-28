@@ -83,7 +83,7 @@ export default function App() {
   const attention=tasks.filter(t=>t.status==='attention').length;
   return <div className="app-shell">
     <header className="app-header">
-      <span className="app-name">AI Signal</span>
+      <span className="app-name">AI红路灯</span>
       <nav className="tabs" aria-label="主导航">{([['tasks','任务'],['appearance','外观'],['connection','连接']] as const).map(([value,label])=><button key={value} className={page===value?'selected':''} aria-current={page===value?'page':undefined} onClick={()=>setPage(value)}>{label}</button>)}</nav>
       <button className="button small" onClick={showWidget}>显示悬浮灯</button>
     </header>

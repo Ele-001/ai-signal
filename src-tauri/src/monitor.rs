@@ -139,7 +139,7 @@ pub fn initialize(app: &tauri::AppHandle) {
             (before!=serde_json::to_vec(&saved).unwrap_or_default() || before_alerts!=serde_json::to_vec(&alerts).unwrap_or_default(),alerts,saved)
         };
         if changed {
-            if let Err(error)=persist(&app,&saved) {eprintln!("AI Signal monitor persistence: {error}");}
+            if let Err(error)=persist(&app,&saved) {eprintln!("AI红路灯 monitor persistence: {error}");}
             let _=app.emit("monitor-tasks",&alerts);
         }
         std::thread::sleep(Duration::from_secs(2));

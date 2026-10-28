@@ -29,7 +29,7 @@ export const actions = {
     commit({...state,tasks:mergeTask(state.tasks,{id,title:'模拟任务',status,source:'手动模拟',updatedAt:Date.now()})});
   },
   clearCompleted() {commit({...state,tasks:state.tasks.filter(t=>t.status!=='completed' && t.status!=='idle')});},
-  transportError(failed: boolean) {transport=failed?[{id:'monitor:ipc',title:'无法读取监测状态',status:'attention',source:'监测保护',message:'应用内部连接异常，请重新打开 AI Signal 并检查原任务。',updatedAt:Date.now(),external:true}]:[];notify();},
+  transportError(failed: boolean) {transport=failed?[{id:'monitor:ipc',title:'无法读取监测状态',status:'attention',source:'监测保护',message:'应用内部连接异常，请重新打开 AI红路灯 并检查原任务。',updatedAt:Date.now(),external:true}]:[];notify();},
   monitoring(tasks: Task[]) {monitoring=tasks.filter(validTask).map(task=>({...task,external:true}));notify();},
   externalSnapshot(tasks: Task[]) {external=tasks.filter(validTask).slice(0,512).map(task=>({...task,external:true}));notify();},
   removeExternal(id: string) {external=external.filter(t=>t.id!==id);notify();},
