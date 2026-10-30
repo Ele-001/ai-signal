@@ -1,7 +1,7 @@
 export const statuses = ['attention', 'repairing', 'running', 'completed', 'idle'] as const;
 export type Status = typeof statuses[number];
 export type Task = { id: string; title: string; status: Status; source: string; message?: string; updatedAt: number; external?: boolean };
-export type SignalStyle = 'classic' | 'playful';
+export type SignalStyle = 'classic' | 'silver' | 'mechanical';
 export type Settings = { style: SignalStyle; motion: boolean; alwaysOnTop: boolean; scale: number; opacity: number; sound: boolean };
 export type LocalState = { version: 1; tasks: Task[]; settings: Settings };
 export const info: Record<Status, {label: string}> = {
@@ -26,7 +26,7 @@ export function restore(raw: string | null): LocalState {
     if (data?.version !== 1) return structuredClone(defaults);
     const s = data.settings ?? {};
     return {version: 1, tasks: Array.isArray(data.tasks) ? data.tasks.filter(validTask).slice(0, 100) : [], settings: {
-      style: s.style === 'playful' ? 'playful' : 'classic',
+      style: s.style === 'silver' || s.style === 'mechanical' ? s.style : 'classic',
       motion: typeof s.motion === 'boolean' ? s.motion : true,
       alwaysOnTop: typeof s.alwaysOnTop === 'boolean' ? s.alwaysOnTop : true,
       sound: typeof s.sound === 'boolean' ? s.sound : false,
@@ -39,4 +39,12 @@ export function mergeTask(tasks: Task[], task: Task): Task[] {
   const old = tasks.find(t => t.id === task.id);
   if (old && old.updatedAt > task.updatedAt) return tasks;
   return [...tasks.filter(t => t.id !== task.id), task].slice(-512);
+}
+export function sameTasks(a: Task[], b: Task[]): boolean {
+  if (a.length !== b.length) return false;
+  const previous = new Map(a.map(task => [task.id, task]));
+  return b.every(task => {
+    const old = previous.get(task.id);
+    return old && old.title === task.title && old.status === task.status && old.source === task.source && old.message === task.message && old.updatedAt === task.updatedAt;
+  });
 }

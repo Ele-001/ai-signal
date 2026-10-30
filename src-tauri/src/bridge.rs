@@ -18,7 +18,7 @@ const MAX_TASKS: usize = 512;
 #[serde(rename_all = "lowercase")]
 pub enum Status { Attention, Repairing, Running, Completed, Idle }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExternalTask {
     pub id: String,

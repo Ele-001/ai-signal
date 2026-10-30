@@ -35,6 +35,16 @@ export default function App() {
   const [bridge,setBridge]=useState<BridgeInfo>();
   const previous=useRef(status);
   const [now,setNow]=useState(Date.now());
+  const [visible,setVisible]=useState(!isDesktop||widgetView);
+  useEffect(()=>{
+    const pause=()=>document.body.classList.toggle('window-hidden',document.hidden);
+    pause();document.addEventListener('visibilitychange',pause);
+    if(!isDesktop)return()=>document.removeEventListener('visibilitychange',pause);
+    let disposed=false;
+    const subscription=listen<boolean>('window-visibility',event=>{if(!disposed)setVisible(event.payload);});
+    void subscription.then(()=>getCurrentWindow().isVisible()).then(value=>{if(!disposed)setVisible(value);}).catch(e=>setError(String(e)));
+    return()=>{disposed=true;document.removeEventListener('visibilitychange',pause);void subscription.then(fn=>fn());};
+  },[]);
   function native(command:string,args?:Record<string,unknown>) {return invoke(command,args).catch(e=>setError(String(e)));}
   useEffect(()=>{
     document.body.classList.toggle('widget-mode',widgetView);
@@ -44,25 +54,25 @@ export default function App() {
     const subscription=listen<Task>('external-task',event=>actions.external(event.payload));
     const protection=listen<Task[]>('monitor-tasks',event=>actions.monitoring(event.payload));
     async function refresh() {
-      if(refreshing)return;refreshing=true;
+      if(refreshing||!visible)return;refreshing=true;
       let timeout:ReturnType<typeof setTimeout>|undefined;
       try {
         const [initial,alerts,bridgeInfo]=await Promise.race([Promise.all([invoke<Task[]>('list_external_tasks'),invoke<Task[]>('list_monitor_tasks'),invoke<BridgeInfo>('bridge_info')]),new Promise<never>((_,reject)=>{timeout=setTimeout(()=>reject(new Error('监测响应超时')),3000);})]);
-        if(!disposed) {actions.externalSnapshot(initial);actions.monitoring(alerts);actions.transportError(false);setBridge(bridgeInfo);}
+        if(!disposed) {actions.externalSnapshot(initial);actions.monitoring(alerts);actions.transportError(false);setBridge(old=>JSON.stringify(old)===JSON.stringify(bridgeInfo)?old:bridgeInfo);}
       } catch(e) {
         if(!disposed) actions.transportError(true);
       } finally {clearTimeout(timeout);refreshing=false;}
     }
     void Promise.all([subscription,removal,protection]).then(refresh);
-    const timer=setInterval(()=>void refresh(),5000);
+    const timer=visible?setInterval(()=>void refresh(),30_000):undefined;
     return()=>{disposed=true;clearInterval(timer);for(const listener of [subscription,removal,protection])void listener.then(fn=>fn());};
-  },[]);
-  useEffect(()=>{if(isDesktop) void native('set_widget_preferences',{alwaysOnTop:store.settings.alwaysOnTop,scale:store.settings.scale});},[store.settings.alwaysOnTop,store.settings.scale]);
+  },[visible]);
+  useEffect(()=>{if(isDesktop&&widgetView) void native('set_widget_preferences',{alwaysOnTop:store.settings.alwaysOnTop,scale:store.settings.scale});},[store.settings.alwaysOnTop,store.settings.scale]);
   useEffect(()=>{
     if(previous.current!==status && store.settings.sound && (!isDesktop || widgetView) && (status==='attention'||status==='completed')) void playSound(status).catch(e=>setError(`无法播放提示音：${String(e)}`));
     previous.current=status;
   },[status,store.settings.sound]);
-  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),30_000);return()=>clearInterval(timer);},[]);
+  useEffect(()=>{if(!visible||widgetView)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),30_000);return()=>clearInterval(timer);},[visible]);
   useEffect(()=>{if(!error)return;const timer=setTimeout(()=>setError(''),7000);return()=>clearTimeout(timer);},[error]);
   useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==='Escape' && isDesktop && !widgetView) void native('hide_panel');};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[]);
   const openPanel=()=>isDesktop?void native('show_panel'):window.open('/?view=panel','ai-signal-panel');
@@ -70,6 +80,7 @@ export default function App() {
   const togglePin=()=>actions.settings({alwaysOnTop:!store.settings.alwaysOnTop});
   const toggleSound=()=>{actions.settings({sound:!store.settings.sound});if(!store.settings.sound)void playSound('attention').catch(e=>setError(String(e)));};
   const drag=()=>{if(isDesktop) void getCurrentWindow().startDragging().catch(e=>setError(String(e)));};
+  if(!visible)return null;
   if(widgetView) return <div className="widget" style={{transform:`scale(${store.settings.scale})`,opacity:store.settings.opacity}}>
     <div className="widget-tools">
       <button onClick={togglePin} aria-label={store.settings.alwaysOnTop?'取消置顶':'置顶'} title="切换置顶">{store.settings.alwaysOnTop?<Pin size={13}/>:<PinOff size={13}/>}</button>
@@ -100,7 +111,7 @@ export default function App() {
       </>}
       {page==='appearance'&&<>
         <h1 className="page-title">外观</h1>
-        <section className="group style-section" aria-label="信号灯样式"><h2>灯体样式</h2><div className="style-options">{([['classic','经典'],['playful','趣味']] as const).map(([value,label])=><button key={value} aria-pressed={store.settings.style===value} className={`style-option ${store.settings.style===value?'selected':''}`} onClick={()=>actions.settings({style:value as SignalStyle})}><div><Signal status={status==='idle'?'completed':status} style={value} motion={store.settings.motion}/></div><span>{label}{store.settings.style===value&&<Check size={13}/>}</span></button>)}</div></section>
+        <section className="group style-section" aria-label="信号灯样式"><h2>灯体样式</h2><div className="style-options">{([['classic','经典'],['silver','银白'],['mechanical','机械']] as const).map(([value,label])=><button key={value} aria-pressed={store.settings.style===value} className={`style-option ${store.settings.style===value?'selected':''}`} onClick={()=>actions.settings({style:value as SignalStyle})}><div><Signal status={status==='idle'?'completed':status} style={value} motion={false}/></div><span>{label}{store.settings.style===value&&<Check size={13}/>}</span></button>)}</div></section>
         <section className="group" aria-label="悬浮灯设置">
           <SettingRow title="始终置顶"><Toggle value={store.settings.alwaysOnTop} onChange={togglePin} label="始终置顶"/></SettingRow>
           <SettingRow title="大小"><div className="slider-control"><input aria-label="灯体缩放" type="range" min=".7" max="1.6" step=".05" value={store.settings.scale} onChange={e=>actions.settings({scale:Number(e.target.value)})}/><output>{Math.round(store.settings.scale*100)}%</output></div></SettingRow>

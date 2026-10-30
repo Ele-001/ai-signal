@@ -11,6 +11,7 @@ use tauri::{menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem}, tray::Tra
 pub(crate) struct NativeState {
     monitor: Mutex<monitor::Monitor>,
     scan_cache: Mutex<HashMap<std::path::PathBuf,connections::CachedRollout>>,
+    title_cache: Mutex<connections::CachedTitles>,
     sync_info: Mutex<connections::SyncInfo>,
     attention_evidence: Mutex<HashMap<String,String>>,
     connections: Mutex<connections::ConnectionSettings>,
@@ -26,6 +27,7 @@ impl Default for NativeState {
         Self {
             monitor: Mutex::new(monitor::Monitor::default()),
             scan_cache: Mutex::new(HashMap::new()),
+            title_cache: Mutex::new(connections::CachedTitles::default()),
             sync_info: Mutex::new(connections::SyncInfo::default()),
             attention_evidence: Mutex::new(HashMap::new()),
             connections: Mutex::new(connections::ConnectionSettings::default()),
@@ -43,29 +45,40 @@ fn window(app: &tauri::AppHandle, label: &str) -> Result<tauri::WebviewWindow, S
 }
 
 #[tauri::command]
-fn show_panel(app: tauri::AppHandle) -> Result<(), String> {
-    let panel = window(&app, "panel")?;
+async fn show_panel(app: tauri::AppHandle) -> Result<(), String> {
+    let panel = match app.get_webview_window("panel") {
+        Some(panel)=>panel,
+        None=>{
+            let config=app.config().app.windows.iter().find(|config|config.label=="panel").ok_or("Panel configuration unavailable")?;
+            tauri::WebviewWindowBuilder::from_config(&app,config).map_err(|e|e.to_string())?.build().map_err(|e|e.to_string())?
+        }
+    };
     panel.show().map_err(|e| e.to_string())?;
     panel.unminimize().map_err(|e| e.to_string())?;
+    panel.emit("window-visibility", true).map_err(|e| e.to_string())?;
     panel.set_focus().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn hide_panel(app: tauri::AppHandle) -> Result<(), String> {
-    window(&app, "panel")?.hide().map_err(|e| e.to_string())
+    if let Some(panel)=app.get_webview_window("panel") {panel.destroy().map_err(|e|e.to_string())?;}
+    Ok(())
 }
 
 #[tauri::command]
 fn show_widget(app: tauri::AppHandle) -> Result<(), String> {
     let widget = window(&app, "widget")?;
     widget.show().map_err(|e| e.to_string())?;
+    widget.emit("window-visibility", true).map_err(|e| e.to_string())?;
     let pinned = app.state::<NativeState>().pinned.load(Ordering::Relaxed);
     widget.set_always_on_top(pinned).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn hide_widget(app: tauri::AppHandle) -> Result<(), String> {
-    window(&app, "widget")?.hide().map_err(|e| e.to_string())
+    let widget=window(&app, "widget")?;
+    widget.hide().map_err(|e| e.to_string())?;
+    widget.emit("window-visibility", false).map_err(|e| e.to_string())
 }
 
 fn set_pin(app: &tauri::AppHandle, pinned: bool) -> Result<(), String> {
@@ -150,7 +163,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             let result = match event.id.as_ref() {
                 "show-widget" => show_widget(app.clone()),
                 "hide-widget" => hide_widget(app.clone()),
-                "open-panel" => show_panel(app.clone()),
+                "open-panel" => {
+                    let app=app.clone();
+                    tauri::async_runtime::spawn(async move {if let Err(error)=show_panel(app).await {eprintln!("AI红路灯 panel: {error}");}});
+                    Ok(())
+                },
                 "pin-widget" => {
                     let pinned = !app.state::<NativeState>().pinned.load(Ordering::Relaxed);
                     set_pin(app, pinned).and_then(|()| app.emit("preferences-changed", PinPreferences { always_on_top: pinned }).map_err(|e| e.to_string()))
@@ -191,7 +208,12 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                if window.label()=="panel" {
+                    if let Err(error)=window.destroy() {eprintln!("AI红路灯 close panel: {error}");}
+                    return;
+                }
                 if let Err(error) = window.hide() { eprintln!("AI红路灯 hide: {error}"); }
+                let _=window.emit("window-visibility",false);
             }
         })
         .run(tauri::generate_context!())

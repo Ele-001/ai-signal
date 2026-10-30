@@ -1,6 +1,8 @@
 # AI红路灯 验收记录
 
-0.1.6 更名版单文件 DMG 的安装与校验记录见 [INSTALLER.md](INSTALLER.md)。
+0.1.7 的后台优化、竖版样式和验证边界见 [PERFORMANCE.md](PERFORMANCE.md)。
+
+0.1.7 单文件 DMG 的安装与校验记录见 [INSTALLER.md](INSTALLER.md)。
 
 最新 0.1.5 旧问题误报修复见 [FALSE-ATTENTION-FIX.md](FALSE-ATTENTION-FIX.md)。
 

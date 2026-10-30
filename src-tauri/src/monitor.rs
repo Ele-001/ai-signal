@@ -7,7 +7,7 @@ fn now_ms() -> u64 {SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_defau
 fn working(task: &ExternalTask) -> bool {matches!(task.status, Status::Running | Status::Repairing)}
 fn sticky(id: &str) -> bool {id == "monitor:screen"}
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize, PartialEq)]
 struct SavedMonitor {
     alerts: Vec<ExternalTask>,
     #[serde(default)]
@@ -21,6 +21,9 @@ pub(crate) struct Monitor {
     desktop_blocked: bool,
 }
 impl Monitor {
+    fn needs_desktop(&self, tasks: &[ExternalTask]) -> bool {
+        tasks.iter().any(working) || self.alerts.contains_key("monitor:screen") || self.alerts.contains_key("monitor:desktop")
+    }
     fn raise(&mut self, id: &str, title: &str, message: &str, now: u64) {
         self.alerts.entry(id.into()).or_insert_with(||ExternalTask {
             id:id.into(), title:title.chars().take(200).collect(), status:Status::Attention,
@@ -131,12 +134,13 @@ pub fn initialize(app: &tauri::AppHandle) {
         if settings.claude && !state.bridge.lock().expect("bridge lock").available {faults.insert("claude".into(),"本机事件接收端不可用".into());}
         let (changed,alerts,saved)={
             let mut monitor=state.monitor.lock().expect("monitor lock");
-            let before=serde_json::to_vec(&monitor.saved()).unwrap_or_default();
-            let before_alerts=serde_json::to_vec(&monitor.snapshot()).unwrap_or_default();
-            monitor.tick(now_ms(),desktop_locked(),&tasks,&faults);
+            let before=monitor.saved();
+            let before_alerts=monitor.snapshot();
+            let desktop=if monitor.needs_desktop(&tasks) {desktop_locked()} else {Ok(false)};
+            monitor.tick(now_ms(),desktop,&tasks,&faults);
             let alerts=monitor.snapshot();
             let saved=monitor.saved();
-            (before!=serde_json::to_vec(&saved).unwrap_or_default() || before_alerts!=serde_json::to_vec(&alerts).unwrap_or_default(),alerts,saved)
+            (before!=saved || before_alerts!=alerts,alerts,saved)
         };
         if changed {
             if let Err(error)=persist(&app,&saved) {eprintln!("AI红路灯 monitor persistence: {error}");}
@@ -208,6 +212,12 @@ fn desktop_locked() -> Result<bool,String> {Err("Desktop monitoring unsupported"
 mod tests {
     use super::*;
     fn task(at:u64)->ExternalTask {ExternalTask{id:"codex:test".into(),title:"测试任务".into(),status:Status::Running,source:Some("test".into()),message:None,updated_at:at}}
+    #[test] fn desktop_probe_is_skipped_only_when_no_work_or_recovery_needs_it() {
+        let mut m=Monitor::default();assert!(!m.needs_desktop(&[]));
+        assert!(m.needs_desktop(&[task(1)]));
+        let mut completed=task(1);completed.status=Status::Completed;assert!(!m.needs_desktop(&[completed]));
+        m.raise("monitor:screen","locked","locked",1);assert!(m.needs_desktop(&[]));
+    }
     #[test] fn locked_work_automatically_clears_only_after_real_recovery() {
         let mut m=Monitor::default();m.tick(1000,Ok(true),&[task(1000)],&HashMap::new());
         assert!(m.alerts.contains_key("monitor:screen"));assert!(m.acknowledge("monitor:screen",1100).is_err());

@@ -1,6 +1,6 @@
 [package]
 name = "ai-signal"
-version = "0.1.6"
+version = "0.1.7"
 description = "A small desktop signal for AI work"
 authors = ["AI红路灯"]
 edition = "2021"

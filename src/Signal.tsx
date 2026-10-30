@@ -1,12 +1,12 @@
-import { useId } from 'react';
+import { memo, useId } from 'react';
 import type { SignalStyle, Status } from './model';
 
 type SignalProps = { status: Status; style?: SignalStyle; motion?: boolean; className?: string };
 
-export function Signal({status, style='classic', motion=true, className=''}: SignalProps) {
+export const Signal = memo(function Signal({status, style='classic', motion=true, className=''}: SignalProps) {
   const classes = `${className} signal-${status} ${motion?'signal-motion':'signal-static'}`;
-  return style === 'playful' ? <PlayfulSignal status={status} className={classes}/> : <ClassicSignal status={status} className={classes}/>;
-}
+  return style === 'classic' ? <ClassicSignal status={status} className={classes}/> : <MetalSignal status={status} style={style} className={classes}/>;
+});
 
 function ClassicSignal({status, className=''}: SignalProps) {
   const id = `signal-${useId().replace(/:/g, '')}`;
@@ -61,21 +61,53 @@ function ClassicSignal({status, className=''}: SignalProps) {
   </svg>;
 }
 
-function PlayfulSignal({status, className=''}: {status:Status;className?:string}) {
+function MetalSignal({status, style, className=''}: SignalProps) {
+  const id = `metal-${useId().replace(/:/g, '')}`;
+  const mechanical = style === 'mechanical';
   const active = status === 'attention' ? 0 : status === 'repairing' ? 1 : status === 'running' || status === 'completed' ? 2 : -1;
-  const colors = ['#f47566','#f4cd65','#9ec68a'];
-  return <svg className={`signal ${className}`} viewBox="0 0 150 292" role="img" aria-label={`信号灯：${status}`}>
-    <path d="M66 264h18v24H66z" fill="#898e83" stroke="#30382f" strokeWidth="3.5"/>
-    <rect x="25" y="9" width="100" height="266" rx="48" fill="#a7ada0" stroke="#30382f" strokeWidth="3.5"/>
-    <path d="M36 204v18c0 26 17 43 39 43 16 0 27-6 36-19" fill="none" stroke="#8a9485" strokeWidth="3" strokeLinecap="round"/>
-    {[0,1,2].map((i) => <g key={`${i}-${status}`} className={`lamp ${active===i?'lamp-active':''}`} >
-      <circle cx="75" cy={62+i*80} r="35" fill={active===i?colors[i]:'#798172'} stroke="#30382f" strokeWidth="3.5"/>
-      <path d={`M42 ${53+i*80}c3-18 15-27 33-27s30 9 33 27`} fill="none" stroke={active===i?'#ffffff85':'#b4bdad80'} strokeWidth="5" strokeLinecap="round"/>
-      <g opacity={active===i ? 1 : .38} stroke="#30382f" strokeWidth="3.4" strokeLinecap="round" fill="none" transform={`translate(0 ${i*80})`}>
-        {i===0?<><path d="M64 58v4q0 4 3 0v-4M83 58v4q0 4 3 0v-4"/><path d="M72 73h6"/></>:i===1?<><path d="m62 58 5 3-5 3m24-6-5 3 5 3"/><circle cx="75" cy="73" r="1.5" fill="#30382f" stroke="none"/></>:<><path d="M64 59v2m22-2v2M63 71q12 14 24 0"/></>}
-      </g>
-      {active===0 && i===0 && <circle className="attention-ring" cx="75" cy="62" r="37" fill="none" stroke="#e25c4b" strokeWidth="1.8"/>}
-    </g>)}
-    <path d="M54 289h42" stroke="#30382f" strokeWidth="3.5" strokeLinecap="round"/>
+  const colors = ['#ff392d', '#ffc526', '#24dc68'];
+  const dark = ['#3a0d11', '#382909', '#092b1c'];
+  return <svg className={`signal signal-${style} ${className}`} viewBox="0 0 150 292" role="img" aria-label={`信号灯：${status}`}>
+    <defs>
+      <linearGradient id={`${id}-body`} x1="0" y1="0" x2="1" y2=".2">
+        {(mechanical ? ['#10171e','#46515d','#202830','#10161d'] : ['#fbfcfd','#d8dde2','#f4f6f7','#adb5be']).map((color,i)=><stop key={i} offset={i/3} stopColor={color}/>)}
+      </linearGradient>
+      <linearGradient id={`${id}-bezel`} x1="0" y1="0" x2=".8" y2="1">
+        <stop stopColor={mechanical?'#85949f':'#fff'}/><stop offset=".28" stopColor={mechanical?'#151c22':'#939da5'}/><stop offset=".6" stopColor="#11181b"/><stop offset="1" stopColor={mechanical?'#60717d':'#fafcfd'}/>
+      </linearGradient>
+      <linearGradient id={`${id}-shine`} x2=".8" y2="1"><stop stopColor="#fff" stopOpacity=".85"/><stop offset="1" stopColor="#fff" stopOpacity="0"/></linearGradient>
+      <pattern id={`${id}-mesh`} width="9" height="15.6" patternUnits="userSpaceOnUse"><path d="M4.5 0 9 2.6v5.2l-4.5 2.6L0 7.8V2.6ZM0 7.8v5.2l4.5 2.6L9 13V7.8" fill="none" stroke="#dfffee" strokeWidth=".45" opacity=".35"/></pattern>
+      {colors.map((color,i)=><g key={i}>
+        <radialGradient id={`${id}-on-${i}`} cx="57%" cy="73%" r="77%"><stop stopColor={i===1?'#fff18b':i===0?'#ff9c72':'#9bffbd'}/><stop offset=".4" stopColor={color}/><stop offset=".82" stopColor={dark[i]}/><stop offset="1" stopColor="#030906"/></radialGradient>
+        <radialGradient id={`${id}-off-${i}`} cx="45%" cy="28%" r="80%"><stop stopColor={dark[i]}/><stop offset="1" stopColor="#080d11"/></radialGradient>
+      </g>)}
+    </defs>
+    {mechanical ? <>
+      <path d="M35 5h80l18 18v246l-18 18H35l-18-18V23Z" fill={`url(#${id}-body)`} stroke="#090e13" strokeWidth="2"/>
+      <path d="M37 11h76l14 15v240l-14 15H37l-14-15V26Z" fill="none" stroke="#87949f" strokeOpacity=".55"/>
+      <path d="M29 41v210m92-210v210M42 17h66M42 275h66" stroke="#0a1015" strokeWidth="2"/>
+      {[24,268].flatMap(y=>[36,114].map(x=><g key={`${x}-${y}`}><circle cx={x} cy={y} r="3.4" fill="#10171e" stroke="#697782" strokeWidth=".8"/><path d={`m${x-1.3} ${y+1.3} 2.6-2.6`} stroke="#86939d" strokeWidth=".6"/></g>))}
+    </> : <>
+      <rect x="18" y="4" width="114" height="284" rx="48" fill={`url(#${id}-body)`} stroke="#a8afb6"/>
+      <rect x="21" y="7" width="108" height="278" rx="45" fill="none" stroke="#fff" strokeOpacity=".85"/>
+      <path d="M20 102h110m-110 87h110" stroke="#8c969f" strokeWidth=".7"/><path d="M21 103h108m-108 87h108" stroke="#fff" strokeOpacity=".7"/>
+    </>}
+    {colors.map((color,i)=>{
+      const cy=60+i*86, lit=i===active;
+      return <g key={i}>
+        <circle cx="75" cy={cy} r="43" fill={`url(#${id}-bezel)`}/>
+        <circle cx="75" cy={cy} r="39.5" fill="#070d10" stroke={mechanical?'#72818c':'#11191b'} strokeWidth={mechanical?1.2:.8}/>
+        <circle cx="75" cy={cy} r="36.8" fill="none" stroke={color} strokeOpacity={lit?.48:.12} strokeWidth={mechanical?2:1}/>
+        <g className={`lamp ${lit?'lamp-active':''}`} key={`${i}-${status}`}>
+          <circle cx="75" cy={cy} r="35" fill={`url(#${id}-${lit?'on':'off'}-${i})`} stroke="#03080a"/>
+          {mechanical&&<circle cx="75" cy={cy} r="33" fill={`url(#${id}-mesh)`} opacity={lit?.7:.15}/>}
+          <path d={`M44 ${cy-10}a33 33 0 0 1 48-19L63 ${cy-1}Z`} fill={`url(#${id}-shine)`} opacity={lit?.8:.16}/>
+          <path d={`M49 ${cy+22}a32 32 0 0 0 47-2`} fill="none" stroke={lit?color:'#46525b'} strokeWidth="2" strokeOpacity={lit?.9:.18}/>
+          <path d={`M52 ${cy-22}a31 31 0 0 1 22-9`} fill="none" stroke="#fff" strokeWidth="1.6" strokeOpacity={lit?.85:.16}/>
+        </g>
+        {mechanical&&<><path d={`M35 ${cy-25}v-9h9m62 9v-9h-9M35 ${cy+25}v9h9m62-9v9h-9`} fill="none" stroke="#91a0aa" strokeOpacity=".5" strokeWidth=".8"/><path d={`M25 ${cy-10}v20m100-20v20`} stroke={lit?color:'#3e4a54'} strokeWidth="1.4"/></>}
+        {lit&&i===0&&<circle className="attention-ring" cx="75" cy={cy} r="38" fill="none" stroke={color} strokeWidth="1.3"/>}
+      </g>;
+    })}
   </svg>;
 }

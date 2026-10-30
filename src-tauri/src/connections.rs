@@ -41,12 +41,28 @@ pub(crate) struct SyncInfo { scanning: bool, last_synced_at: u64, error: Option<
 #[derive(Clone)]
 pub(crate) struct CachedRollout { modified: SystemTime, len: u64, offset: u64, record: Rollout }
 
+#[derive(Default)]
+pub(crate) struct CachedTitles {
+    fingerprint: Option<(SystemTime,u64)>,
+    titles: HashMap<String,String>,
+}
+impl CachedTitles {
+    fn read(&mut self, root: &Path) -> &HashMap<String,String> {
+        let fingerprint=fs::metadata(root.join("session_index.jsonl")).ok().and_then(|m|m.modified().ok().map(|modified|(modified,m.len())));
+        if fingerprint!=self.fingerprint {
+            self.titles=read_thread_titles(root);
+            self.fingerprint=fingerprint;
+        }
+        &self.titles
+    }
+}
+
 fn run_scan(app: &tauri::AppHandle, force: bool) -> Result<(),String> {
     let state=app.state::<NativeState>();
     let mut cache=state.scan_cache.lock().map_err(|e|e.to_string())?;
     if !state.connections.lock().map_err(|e|e.to_string())?.codex {cache.clear();return Ok(());}
     state.sync_info.lock().map_err(|e|e.to_string())?.scanning=true;
-    if force {cache.clear();}
+    if force {cache.clear();*state.title_cache.lock().map_err(|e|e.to_string())?=CachedTitles::default();}
     let result=scan_codex(app,&mut cache);
     if let Ok(mut errors)=state.connection_errors.lock() {
         match &result {Ok(())=>{errors.remove("codex");},Err(e)=>{errors.insert("codex".into(),e.clone());}}
@@ -356,7 +372,9 @@ fn scan_codex(app: &tauri::AppHandle, cache: &mut HashMap<PathBuf,CachedRollout>
     let root=code_root(&home).join("sessions");
     if !root.is_dir() {return Err("Codex 会话目录不可用".into());}
     fs::read_dir(&root).map_err(|_|"无法读取 Codex 会话目录，请检查磁盘和权限。".to_string())?;
-    let titles=read_thread_titles(&code_root(&home));
+    let state=app.state::<NativeState>();
+    let mut title_cache=state.title_cache.lock().map_err(|e|e.to_string())?;
+    let titles=title_cache.read(&code_root(&home));
     let mut files=Vec::new();collect_files(&root,0,&mut 10000,&mut files)?;
     let incomplete=files.len()>512;
     files.sort_by(|a,b|b.0.cmp(&a.0));files.truncate(512);
@@ -473,6 +491,32 @@ fn send_hook(path: &Path, task: &ExternalTask) -> Result<(),String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn title_cache_reloads_changes_and_clears_removed_index() {
+        let root=std::env::temp_dir().join(format!("signal-titles-{}-{}",std::process::id(),now_ms()));
+        fs::create_dir_all(&root).unwrap();let path=root.join("session_index.jsonl");
+        let mut cache=CachedTitles::default();assert!(cache.read(&root).is_empty());
+        fs::write(&path,b"{\"id\":\"one\",\"thread_name\":\"first\"}\n").unwrap();
+        assert_eq!(cache.read(&root).get("one").unwrap(),"first");
+        let allocation=cache.read(&root).get("one").unwrap().as_ptr();
+        assert_eq!(cache.read(&root).get("one").unwrap().as_ptr(),allocation);
+        fs::write(&path,b"{\"id\":\"one\",\"thread_name\":\"second title\"}\n").unwrap();
+        assert_eq!(cache.read(&root).get("one").unwrap(),"second title");
+        fs::remove_file(path).unwrap();assert!(cache.read(&root).is_empty());fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "read-only local performance measurement"]
+    fn measure_warm_scan_cost() {
+        let root=PathBuf::from(std::env::var("AI_SIGNAL_BENCH_ROOT").expect("selected Codex root"));
+        let rounds=100;let start=std::time::Instant::now();
+        for _ in 0..rounds {std::hint::black_box(read_thread_titles(&root));}
+        let uncached=start.elapsed();let mut cache=CachedTitles::default();cache.read(&root);
+        let start=std::time::Instant::now();for _ in 0..rounds {std::hint::black_box(cache.read(&root));}
+        let cached=start.elapsed();let start=std::time::Instant::now();let mut files=Vec::new();
+        for _ in 0..20 {files.clear();collect_files(&root.join("sessions"),0,&mut 10000,&mut files).unwrap();}
+        println!("title reads: uncached {uncached:?}, cached {cached:?}, {rounds} rounds; directory discovery: {:?}/scan; recent files {}",start.elapsed()/20,files.len());
+    }
     #[test] fn rollout_parser_requires_lifecycle_evidence_and_ignores_prompt_text() {
         let mut state=Rollout::default();
         parse_rollout(b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"s1\",\"cwd\":\"/work/project\"}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"task_started\"}}",&mut state);

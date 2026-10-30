@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {aggregate,mergeTask,restore,validTask,statuses} from '../src/model.ts';
+import {aggregate,mergeTask,restore,sameTasks,validTask,statuses} from '../src/model.ts';
 import type {Task} from '../src/model.ts';
 const task=(status:Task['status'],updatedAt=1):Task=>({id:status,title:'task',status,source:'test',updatedAt});
 test('aggregation always chooses highest urgency regardless of ordering',()=>{
@@ -16,7 +16,7 @@ test('corrupt saved state is contained, numeric preferences clamp, task data val
 });
 test('signal styles persist and old or unknown settings use the classic default',()=>{
   assert.equal(restore(null).settings.style,'classic');
-  assert.equal(restore(JSON.stringify({version:1,settings:{style:'playful'}})).settings.style,'playful');
+  assert.equal(restore(JSON.stringify({version:1,settings:{style:'playful'}})).settings.style,'classic');
   assert.equal(restore(JSON.stringify({version:1,settings:{style:'unknown'}})).settings.style,'classic');
   assert.equal(restore(JSON.stringify({version:1,settings:{alwaysOnTop:false}})).settings.alwaysOnTop,false);
   assert.equal(restore(null).settings.motion,true);
@@ -34,4 +34,17 @@ test('all 512 native tasks survive hydration, including an older urgent task',()
   assert.equal(tasks.length,512);assert.equal(aggregate(tasks),'attention');
   assert.equal(validTask({...task('running'),title:'🟢'.repeat(200)}),true);
   assert.equal(validTask({...task('running'),title:'🟢'.repeat(201)}),false);
+});
+
+test('new vertical styles persist without changing other preferences',()=>{
+  for(const style of ['silver','mechanical']) {
+    const saved=restore(JSON.stringify({version:1,settings:{style,sound:true,scale:1.2},tasks:[task('attention')]}));
+    assert.equal(saved.settings.style,style);assert.equal(saved.settings.scale,1.2);assert.equal(saved.settings.sound,true);assert.equal(saved.tasks[0].status,'attention');
+  }
+});
+test('unchanged task snapshots do not need an update, but every visible change does',()=>{
+  const a=task('running'),b=task('attention');
+  assert.ok(sameTasks([a,b],[{...b},{...a}]));
+  for(const patch of [{status:'completed' as const},{updatedAt:2},{title:'new'},{message:'new'},{source:'new'}]) assert.ok(!sameTasks([a],[{...a,...patch}]));
+  assert.ok(!sameTasks([a],[]));
 });

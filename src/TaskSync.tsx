@@ -11,7 +11,7 @@ export function TaskSync({onError}:{onError:(error:string)=>void}) {
     if(!isDesktop)return;
     let disposed=false;
     const read=()=>void invoke<SyncInfo>('task_sync_info').then(value=>{if(!disposed)setInfo(value);}).catch(e=>{if(!disposed)onError(String(e));});
-    read();const timer=setInterval(read,1000);
+    read();const timer=setInterval(read,3000);
     return()=>{disposed=true;clearInterval(timer);};
   },[onError]);
   if(!isDesktop)return null;
